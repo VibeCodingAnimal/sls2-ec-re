@@ -1,0 +1,108 @@
+# tracer: nop
+#
+# entries-in-buffer/entries-written: 96/96   #P:20
+#
+#                                _-----=> irqs-off/BH-disabled
+#                               / _----=> need-resched
+#                              | / _---=> hardirq/softirq
+#                              || / _--=> preempt-depth
+#                              ||| / _-=> migrate-disable
+#                              |||| /     delay
+#           TASK-PID     CPU#  |||||  TIMESTAMP  FUNCTION
+#              | |         |   |||||     |         |
+        nvpl-gui-2754    [002] .....  2740.215404: ssam_request_submit: uid=e021f386, rqid=0xc0b, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [019] .....  2740.216846: ssam_rx_response_received: rqid=0x0c0b, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [019] .....  2740.216848: ssam_request_complete: uid=e021f386, rqid=0xc0b, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [006] .....  2740.217346: ssam_request_submit: uid=fc6ef38a, rqid=0xc0c, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [019] .....  2740.217811: ssam_rx_response_received: rqid=0x0c0c, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [019] .....  2740.217812: ssam_request_complete: uid=fc6ef38a, rqid=0xc0c, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [006] .....  2742.219426: ssam_request_submit: uid=e021f386, rqid=0xc0d, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [019] .....  2742.220989: ssam_rx_response_received: rqid=0x0c0d, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [019] .....  2742.220991: ssam_request_complete: uid=e021f386, rqid=0xc0d, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [006] .....  2742.221203: ssam_request_submit: uid=449ef8bc, rqid=0xc0e, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [019] .....  2742.222008: ssam_rx_response_received: rqid=0x0c0e, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [019] .....  2742.222010: ssam_request_complete: uid=449ef8bc, rqid=0xc0e, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [012] .....  2744.224227: ssam_request_submit: uid=9c590cd0, rqid=0xc0f, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [019] .....  2744.225869: ssam_rx_response_received: rqid=0x0c0f, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [019] .....  2744.225872: ssam_request_complete: uid=9c590cd0, rqid=0xc0f, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [010] .....  2744.226479: ssam_request_submit: uid=3b819254, rqid=0xc10, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [019] .....  2744.227892: ssam_rx_response_received: rqid=0x0c10, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [019] .....  2744.227894: ssam_request_complete: uid=3b819254, rqid=0xc10, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [016] .....  2746.228401: ssam_request_submit: uid=fc6ef38a, rqid=0xc11, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [019] .....  2746.229996: ssam_rx_response_received: rqid=0x0c11, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [019] .....  2746.229998: ssam_request_complete: uid=fc6ef38a, rqid=0xc11, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [016] .....  2746.230419: ssam_request_submit: uid=15ade8b6, rqid=0xc12, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [019] .....  2746.232000: ssam_rx_response_received: rqid=0x0c12, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [019] .....  2746.232002: ssam_request_complete: uid=15ade8b6, rqid=0xc12, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+         upowerd-2410    [010] .....  2747.315398: ssam_request_submit: uid=42f33e6d, rqid=0xc13, ty=R, sta=, tid=SAM, sid=Host, tc=BAT, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [019] .....  2747.317013: ssam_rx_response_received: rqid=0x0c13, tid=Host, sid=SAM, tc=BAT, cid=0x01, iid=0x01, len=4
+ ssam_serial_hub-327     [019] .....  2747.317016: ssam_request_complete: uid=42f33e6d, rqid=0xc13, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=BAT, cid=0x1, iid=0x1, status=0
+         upowerd-2410    [016] .....  2747.317108: ssam_request_submit: uid=ab519455, rqid=0xc14, ty=R, sta=, tid=SAM, sid=Host, tc=BAT, cid=0x3, iid=0x1
+ ssam_serial_hub-327     [019] .....  2747.317988: ssam_rx_response_received: rqid=0x0c14, tid=Host, sid=SAM, tc=BAT, cid=0x03, iid=0x01, len=16
+ ssam_serial_hub-327     [019] .....  2747.317989: ssam_request_complete: uid=ab519455, rqid=0xc14, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=BAT, cid=0x3, iid=0x1, status=0
+        nvpl-gui-2754    [013] .....  2748.231094: ssam_request_submit: uid=ac16f3b8, rqid=0xc15, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [019] .....  2748.232650: ssam_rx_response_received: rqid=0x0c15, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [019] .....  2748.232653: ssam_request_complete: uid=ac16f3b8, rqid=0xc15, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [013] .....  2748.233092: ssam_request_submit: uid=9a873868, rqid=0xc16, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [019] .....  2748.234596: ssam_rx_response_received: rqid=0x0c16, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [019] .....  2748.234597: ssam_request_complete: uid=9a873868, rqid=0xc16, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [013] .....  2750.235501: ssam_request_submit: uid=7a3fcca8, rqid=0xc17, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [019] .....  2750.237173: ssam_rx_response_received: rqid=0x0c17, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [019] .....  2750.237177: ssam_request_complete: uid=7a3fcca8, rqid=0xc17, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [013] .....  2750.237724: ssam_request_submit: uid=6330316d, rqid=0xc18, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [019] .....  2750.239132: ssam_rx_response_received: rqid=0x0c18, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [019] .....  2750.239137: ssam_request_complete: uid=6330316d, rqid=0xc18, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [013] .....  2752.239663: ssam_request_submit: uid=fd8fa34a, rqid=0xc19, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [019] .....  2752.241326: ssam_rx_response_received: rqid=0x0c19, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [019] .....  2752.241330: ssam_request_complete: uid=fd8fa34a, rqid=0xc19, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [013] .....  2752.241904: ssam_request_submit: uid=04eac105, rqid=0xc1a, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [019] .....  2752.243348: ssam_rx_response_received: rqid=0x0c1a, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [019] .....  2752.243350: ssam_request_complete: uid=04eac105, rqid=0xc1a, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [010] .....  2754.243159: ssam_request_submit: uid=9c590cd0, rqid=0xc1b, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [016] .....  2754.244495: ssam_rx_response_received: rqid=0x0c1b, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [016] .....  2754.244497: ssam_request_complete: uid=9c590cd0, rqid=0xc1b, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [019] .....  2754.244867: ssam_request_submit: uid=9a873868, rqid=0xc1c, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [016] .....  2754.245536: ssam_rx_response_received: rqid=0x0c1c, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [016] .....  2754.245537: ssam_request_complete: uid=9a873868, rqid=0xc1c, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [019] .....  2756.247448: ssam_request_submit: uid=5ff9d4b2, rqid=0xc1d, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [016] .....  2756.248964: ssam_rx_response_received: rqid=0x0c1d, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [016] .....  2756.248966: ssam_request_complete: uid=5ff9d4b2, rqid=0xc1d, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [000] .....  2756.249350: ssam_request_submit: uid=aed689c8, rqid=0xc1e, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [016] .....  2756.249883: ssam_rx_response_received: rqid=0x0c1e, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [016] .....  2756.249887: ssam_request_complete: uid=aed689c8, rqid=0xc1e, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [000] .....  2758.251347: ssam_request_submit: uid=be4c086c, rqid=0xc1f, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [017] .....  2758.252829: ssam_rx_response_received: rqid=0x0c1f, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [017] .....  2758.252831: ssam_request_complete: uid=be4c086c, rqid=0xc1f, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [000] .....  2758.253024: ssam_request_submit: uid=f29340d8, rqid=0xc20, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [017] .....  2758.253813: ssam_rx_response_received: rqid=0x0c20, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [017] .....  2758.253815: ssam_request_complete: uid=f29340d8, rqid=0xc20, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [000] .....  2760.255640: ssam_request_submit: uid=3d194027, rqid=0xc21, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [017] .....  2760.257123: ssam_rx_response_received: rqid=0x0c21, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [017] .....  2760.257137: ssam_request_complete: uid=3d194027, rqid=0xc21, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [018] .....  2760.257587: ssam_request_submit: uid=ac16f3b8, rqid=0xc22, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [017] .....  2760.257993: ssam_rx_response_received: rqid=0x0c22, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [017] .....  2760.257994: ssam_request_complete: uid=ac16f3b8, rqid=0xc22, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [006] .....  2762.260325: ssam_request_submit: uid=335ef37a, rqid=0xc23, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [017] .....  2762.262020: ssam_rx_response_received: rqid=0x0c23, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [017] .....  2762.262024: ssam_request_complete: uid=335ef37a, rqid=0xc23, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [006] .....  2762.262297: ssam_request_submit: uid=54f99ae7, rqid=0xc24, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [017] .....  2762.262903: ssam_rx_response_received: rqid=0x0c24, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [017] .....  2762.262904: ssam_request_complete: uid=54f99ae7, rqid=0xc24, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [000] .....  2764.263454: ssam_request_submit: uid=fb35456b, rqid=0xc25, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [017] .....  2764.264931: ssam_rx_response_received: rqid=0x0c25, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [017] .....  2764.264933: ssam_request_complete: uid=fb35456b, rqid=0xc25, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [000] .....  2764.265100: ssam_request_submit: uid=3b819254, rqid=0xc26, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [017] .....  2764.265888: ssam_rx_response_received: rqid=0x0c26, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [017] .....  2764.265889: ssam_request_complete: uid=3b819254, rqid=0xc26, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [000] .....  2766.268442: ssam_request_submit: uid=778164e6, rqid=0xc27, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [017] .....  2766.270037: ssam_rx_response_received: rqid=0x0c27, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [017] .....  2766.270039: ssam_request_complete: uid=778164e6, rqid=0xc27, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [000] .....  2766.270451: ssam_request_submit: uid=15ade8b6, rqid=0xc28, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [017] .....  2766.272084: ssam_rx_response_received: rqid=0x0c28, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [017] .....  2766.272086: ssam_request_complete: uid=15ade8b6, rqid=0xc28, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0
+        nvpl-gui-2754    [000] .....  2768.271682: ssam_request_submit: uid=3b819254, rqid=0xc29, ty=R, sta=, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0
+ ssam_serial_hub-327     [017] .....  2768.273311: ssam_rx_response_received: rqid=0x0c29, tid=Host, sid=SAM, tc=TMP, cid=0x02, iid=0x00, len=8
+ ssam_serial_hub-327     [017] .....  2768.273313: ssam_request_complete: uid=3b819254, rqid=0xc29, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=TMP, cid=0x2, iid=0x0, status=0
+        nvpl-gui-2754    [000] .....  2768.273605: ssam_request_submit: uid=3e120113, rqid=0xc2a, ty=R, sta=, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1
+ ssam_serial_hub-327     [017] .....  2768.274273: ssam_rx_response_received: rqid=0x0c2a, tid=Host, sid=SAM, tc=FAN, cid=0x01, iid=0x01, len=2
+ ssam_serial_hub-327     [017] .....  2768.274274: ssam_request_complete: uid=3e120113, rqid=0xc2a, ty=R, sta=LTAF, tid=SAM, sid=Host, tc=FAN, cid=0x1, iid=0x1, status=0

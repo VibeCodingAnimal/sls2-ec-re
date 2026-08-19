@@ -1,0 +1,26 @@
+# Raw binaries — never commit. Only metadata in acquisition/IDENTIFY.md.
+raw/
+*.msi
+*.msi.zip
+*.cab
+*.sys
+*.bin
+*.pdb
+
+# Build artifacts
+build/
+*.o
+*.ko
+*.a
+
+# OS / editor junk
+.DS_Store
+*.swp
+*~
+
+# python
+__pycache__/
+*.pyc
+
+# Cached Microsoft download page (kept locally for reference, not for git)
+acquisition/details.html

@@ -1,0 +1,81 @@
+// ssam-trace.bt - bpftrace capture of SSAM request/response traffic.
+// Observational only. Attaches to existing SSAM kernel tracepoints.
+//
+// Run:  sudo bpftrace -o pcap/ssam-trace.txt tools/bpftrace/ssam-trace.bt
+// Stop with Ctrl-C.
+
+BEGIN {
+    // EC TC enum (from kernel print fmt)
+    @tc_name[1]  = "SAM";
+    @tc_name[2]  = "BAT";
+    @tc_name[3]  = "TMP";
+    @tc_name[4]  = "PMC";
+    @tc_name[5]  = "FAN";
+    @tc_name[6]  = "PoM";
+    @tc_name[7]  = "DBG";
+    @tc_name[8]  = "KBD";
+    @tc_name[9]  = "FWU";
+    @tc_name[10] = "UNI";
+    @tc_name[11] = "LPC";
+    @tc_name[12] = "TCL";
+    @tc_name[13] = "SFL";
+    @tc_name[14] = "KIP";
+    @tc_name[15] = "EXT";
+    @tc_name[16] = "BLD";
+    @tc_name[17] = "BAS";
+    @tc_name[18] = "SEN";
+    @tc_name[19] = "SRQ";
+    @tc_name[20] = "MCU";
+    @tc_name[21] = "HID";
+    @tc_name[22] = "TCH";
+    @tc_name[23] = "BKL";
+    @tc_name[24] = "TAM";
+    @tc_name[25] = "ACC0";
+    @tc_name[26] = "UFI";
+    @tc_name[27] = "USC";
+    @tc_name[28] = "PEN";
+    @tc_name[29] = "VID";
+    @tc_name[30] = "AUD";
+    @tc_name[31] = "SMC";
+    @tc_name[32] = "KPD";
+    @tc_name[33] = "REG";
+    @tc_name[34] = "SPT";
+    @tc_name[35] = "SYS";
+    @tc_name[36] = "ACC1";
+    @tc_name[37] = "SMB";
+    @tc_name[38] = "POS";
+
+    @tid_name[1] = "Host";
+    @tid_name[2] = "SAM";
+    @tid_name[3] = "KIP";
+    @tid_name[4] = "Debug";
+    @tid_name[5] = "SurfLink";
+
+    printf("START ssam-trace.bt\n");
+}
+
+tracepoint:surface_aggregator:ssam_rx_response_received {
+    $tcn = @tc_name[args->tc];
+    $tidn = @tid_name[args->tid];
+    $ts = nsecs / 1000;
+    printf("%u RESP tc=%s cid=0x%02x iid=0x%02x tid=%s len=%u rqid=0x%04x\n",
+        $ts, $tcn, args->cid, args->iid, $tidn, args->len, args->rqid);
+}
+
+tracepoint:surface_aggregator:ssam_rx_frame_received {
+    $typ = args->type;
+    $type_name = "???";
+    if ($typ == 0x80)        { $type_name = "DSEQ"; }
+    else if ($typ == 0x00)   { $type_name = "DNSQ"; }
+    else if ($typ == 0x40)   { $type_name = "ACK"; }
+    else if ($typ == 0x04)   { $type_name = "NAK"; }
+    $ts = nsecs / 1000;
+    printf("%u FRAME type=%s seq=%u len=%u\n",
+        $ts, $type_name, args->seq, args->len);
+}
+
+END {
+    printf("STOP ssam-trace.bt\n");
+    clear(@tc_name);
+    clear(@tid_name);
+}
