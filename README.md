@@ -1,18 +1,80 @@
 # SLS2 EC Firmware Reverse-Engineering
 
-**Goal:** Understand how the SLS2 Embedded Controller (EC) firmware and the Windows Surface driver stack control fan speeds, PCIe link speed, and power delivery, so that Linux can do the same.
+**Goal:** understand how the SLS2 Embedded Controller (EC) firmware and the
+Windows Surface driver stack control fan speed, GPU power profile and power
+delivery, so that Linux can do the same.
 
-## Status: All 5 phases complete — see `decoded/RECOMMENDATIONS.md`
+## Status: manual fan control solved, live and proven
 
-The work was **observational only**. We read SAM frames, RE the drivers, and map the EC firmware — but we did **not** issue any SET commands, modify sysfs, or write a userspace tool. The deliverable is understanding, not action.
+The EC's ARM code is in the MSI and it is **not** encrypted. It was loaded
+into Ghidra (2983 procedures) and the fan subsystem was decoded down to the
+register writes.
 
-System state at session end is identical to session start: no SET issued, no ACPI call made, no EC firmware flashed, no `setpci` write, no kernel modules loaded/unloaded, `platform_profile` still `balanced`, dGPU PCIe link still Gen 1 ×8, EC firmware still `12.201.139`.
+The fan model, from `FUN_100C595E` and `FUN_100C5DFE`:
+
+```
+target_rpm = min( quadratic(target_temp), forced_rpm )
+```
+
+Two SSAM commands drive it:
+
+| Command | Payload | Effect |
+|---|---|---|
+| `FAN CID 0x0B` | u16 rpm | the forced-RPM cap (`fan+0x76`) — this is the slider |
+| `FAN CID 0x0E` | u8 profile id | point the fan at a profile record, which sets the target °C |
+| `FAN CID 0x0C` | f32 °C | set the target temperature directly (sets the override flag, so the profile cannot overwrite it) |
+
+Live proof on this machine:
+
+```
+3026 rpm → CID 0x0B = 11000        → 4808 rpm / 71 %
+         → CID 0x0E = 6 "Extreme"   → 7508 rpm / 100 % / 45 °C
+         → restore                  → 3200 rpm
+```
+
+The ceiling is **~7500 rpm, not 11000**. Driving the EC's own quadratic as
+far as it goes (CID 0x0C → 55 °C, so the EC asks for 11177 rpm) yields
+7450 rpm with the duty already at 100 %. The `11000` in the fan's config
+blob is a guard on the EC's *model* rpm, not a speed the fan delivers.
+
+Details: `decoded/FAN_SPEED.md`, `decoded/FAN_CONTROL.md`,
+`decoded/TC_FAN.md`, `decoded/CURVE.md`.
+
+### Tooling
+
+```
+sudo modprobe surface_aggregator_cdev     # gives /dev/surface/aggregator
+python3 tools/fanctl/fanctl.py --status
+python3 tools/fanctl/fanctl.py --rpm 6000
+python3 tools/fanctl/fanctl.py --gui      # Tk slider
+```
+
+`tools/cdev-probe/` holds the raw probes used to decode the command table;
+`tools/cdev-probe/fan_temp_boost.py` is the CID 0x0C door.
+
+## Also answered
+
+- **The EC never dispatches commands with bit 7 set.** CIDs 0x80 (manual
+  mode), 0x81, 0x83 and 0x84 are implemented in the firmware but
+  unreachable from Linux: a GET times out (-110) and a SET's "status 0" is
+  the *kernel's* — a SET carries no `HAS_RESPONSE`, so it only proves the
+  request was queued. → `decoded/FAN_SPEED.md` §11.
+- **The SAM does not talk to the dGPU.** Its pin table has no GPU, PCIe or
+  PERST signals; it sees board straps, a proxy I2C sensor labelled
+  `DGPU TEMP (U8302)`, and publishes dGPU state to the OS over ACPI SANV.
+  → `decoded/DGPU.md`.
+- **The platform-profile cap is the Linux driver, not the EC.** The EC
+  accepts platform IDs 1–7 without rejection; `surface_platform_profile`
+  only ever emits 1–4 and hard-rejects anything higher with `-EINVAL`.
 
 ## Scope
 
-- **PCIe link speed** is the first focus (currently Gen 1 x8 instead of Gen 4 x8 — a 6.4× bandwidth throttle)
-- **Fan control** is gated behind ACPI `platform_profile` (4 curves: low-power / balanced / balanced-performance / performance)
-- **Power limits** are controlled by the EC via proprietary SSAM commands documented in the Windows driver .sys files
+- **PCIe link speed** — currently Gen 1 x8 instead of Gen 4 x8, a 6.4×
+  bandwidth throttle. The old "EC link-training policy" hypothesis is dead
+  (`decoded/PCI.md`).
+- **Fan control** — solved, see above.
+- **GPU power profile** — two axes: wire platform-id → GPU power profile →
+  per-fan profile ids → fan profile records.
 
 ## Glossary
 
@@ -20,49 +82,50 @@ System state at session end is identical to session start: no SET issued, no ACP
 |------|---------|
 | **SAM/SSAM** | Surface System Aggregator Module — the protocol between the main CPU and the Surface EC |
 | **EC** | Embedded Controller — a low-power microcontroller on the SLS2 motherboard that handles fans, thermals, power gating, battery, keyboard backlight, etc. |
-| **TC** | Target Category — the top-level namespace in SAM (e.g. `0x03` = thermal, `0x06` = fan) |
-| **CID** | Command ID — the operation within a TC (e.g. `0x01` = get, `0x02` = set) |
+| **TC** | Target Category — the top-level namespace in SAM (`0x03` = thermal, `0x05` = fan) |
+| **CID** | Command ID — the operation within a TC (`0x01` = get RPM, `0x0B` = set forced-RPM cap) |
 | **IID** | Instance ID — which sub-device of a TC (e.g. which fan, which sensor) |
-| **cdev** | Character device — the `/dev/surface/aggregator` interface exposed by `surface_aggregator_cdev.ko` for userspace SAM access |
-| **platform_profile** | The ACPI sysfs knob at `/sys/firmware/acpi/platform_profile` for switching between the 4 EC thermal curves |
+| **cdev** | Character device — `/dev/surface/aggregator`, exposed by `surface_aggregator_cdev.ko` for raw SSAM access from userspace |
+| **platform_profile** | the ACPI sysfs knob at `/sys/firmware/acpi/platform_profile` |
+| **XLFF** | Microsoft's firmware container format — a PKCS#7 `signedData` wrapper around a chunk-based MSS1/SAML payload |
 
 ## Layout
 
 ```
 sls2-ec-re/
-├── README.md               # this file
+├── README.md
 ├── LICENSE                 # MIT
-├── .gitignore              # excludes raw/, *.msi, *.sys, *.bin
+├── .gitignore              # excludes raw/, *.msi, *.sys, *.bin, *.ko
 ├── acquisition/
 │   ├── download_msi.sh     # one-shot MSI downloader
 │   ├── extract_msi.sh      # MSI extraction wrapper
 │   └── IDENTIFY.md         # SHA256 hashes + sources only
-├── raw/                    # gitignored binaries
-│   ├── sys/                # surface_*.sys driver files
-│   └── ec/                 # EC firmware blob
+├── raw/                    # gitignored — 4.6 GB of extracted firmware
 ├── decoded/                # RE deliverables (markdown)
 │   ├── SAM_TABLE.md        # primary: TC × CID × IID table
-│   ├── TC_FAN.md
-│   ├── TC_BAT.md
-│   ├── TC_TMP.md
-│   ├── PCI.md
-│   ├── EC.md
-│   └── RECOMMENDATIONS.md  # final output of this session
-├── docs/                   # protocol documentation
+│   ├── CODE_MAP.md         # the EC's address map and its procedures
+│   ├── EC.md               # the EC firmware container and its code region
+│   ├── FAN_CONTROL.md      # the fan subsystem, end to end
+│   ├── FAN_SPEED.md        # the RPM model and the 11000-rpm question
+│   ├── CURVE.md            # the curve interpolation machinery
+│   ├── TC_FAN.md           # the FAN command table
+│   ├── DGPU.md             # what the SAM does and does not know about the dGPU
+│   ├── PCI.md              # PCIe link speed (the old hypothesis, corrected)
+│   └── RECOMMENDATIONS.md  # the original phase-5 report
 ├── pcap/                   # SAM/strace captures
 ├── sessions/               # per-session notes
 └── tools/
-    ├── rizin/              # .r2 scripts for repeatable RE
-    └── ssam-probe/         # (Phase 5 — NOT this session)
+    ├── fanctl/             # the fan control tool (CLI + Tk GUI)
+    ├── cdev-probe/         # raw SSAM probes used to decode the tables
+    ├── xlff/               # firmware container extraction
+    ├── acpi-map/           # ACPI SANV / _DSM mapping
+    └── bpftrace/           # ftrace SSAM tracer
 ```
 
-## Phase status
-
-- [x] Phase 1: Setup & acquisition — MSI downloaded, 8 drivers + EC FW identified, IDENTIFY.md written
-- [x] Phase 2: Live reconnaissance (read-only) — SAM frames captured, baseline recorded
-- [x] Phase 3: Static analysis of Windows drivers — full TC × CID table, SmfClient fan commands identified, ACPI `_DSM` mapped
-- [x] Phase 4: EC firmware static analysis — confirmed plaintext (not encrypted); chunk-based XLFF format decoded; SAM dispatch table mapped (49 entries); TC 0x04 PMC SET CID 0x0A flagged as likely PCIe/power-limit control
-- [x] Phase 5: Recommendation report — 7 ranked options in `decoded/RECOMMENDATIONS.md`
+The firmware binaries themselves are **not** in this repo. `raw/` holds the
+extracted Microsoft firmware and is gitignored along with every `*.msi`,
+`*.bin` and `*.ko`; `acquisition/IDENTIFY.md` carries the SHA256s and the
+exact extraction commands so the environment can be rebuilt.
 
 ## Driver set discovered
 
@@ -83,8 +146,21 @@ SHA256s and ACPI HW IDs. Sorted by subsystem:
 - `SurfacePowerMeterDriver.sys` — reads MAX34407/34417 hardware AND SAM
 - `SurfacePowerTrackerCore.sys`
 
-The EC firmware is `SurfaceSAM_13.101.139.bin` (codename "Elmer"), PKCS#7/XLFF
-signed and encrypted — not directly RE-able. RE focus is the .sys drivers.
+The EC firmware is `SurfaceSAM_13.101.139.bin` (codename "Elmer"), a
+PKCS#7/XLFF container around a chunk-based MSS1/SAML payload. The ARM code
+region maps as `absolute = 0x1007F994 + image_offset`, vector table at
+`0x10080000`.
+
+## Reproducing
+
+```bash
+./acquisition/download_msi.sh
+./acquisition/extract_msi.sh
+python3 tools/xlff/xlff_extract.py      # → the EC ARM image
+```
+
+Then load the image into Ghidra 12.1.4 (base `0x10080000`) or drive the EC
+directly through the cdev.
 
 ## Sources
 
@@ -97,4 +173,4 @@ signed and encrypted — not directly RE-able. RE focus is the .sys drivers.
 
 ## License
 
-MIT (consistent with the nvpl-release project).
+MIT.
