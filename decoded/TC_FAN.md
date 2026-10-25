@@ -64,3 +64,106 @@ up via cdev probing.
 - `decoded/SAM_TABLE.md` — base SAM table
 - `decoded/TC_FAN.md` — this file
 - `pcap/ssam-trace.txt` — ftrace showing FAN CID 0x01, IID 0x01 polling
+
+---
+
+## Update 2026-10-24 — the FAN command table is now decoded
+
+The EC's own dispatcher `FUN_100C6610` enumerates every FAN CID. Two of
+them are the ones that actually move the fan, and neither is the one
+Windows' SMF layer makes look obvious:
+
+| CID | dir | payload | what it does |
+|-----|-----|---------|--------------|
+| 0x01 | GET | — | measured RPM (u16) |
+| 0x04 | GET | — | fan **profile record** by id (0x40 B) |
+| 0x05 | GET | — | per-fan record |
+| 0x06 | GET | — | the fan's 0x26 B config blob (holds the RPM quadratic) |
+| 0x0B | **SET** | u16 rpm | the **forced-RPM cap** — this is the slider |
+| 0x0D | GET | — | the applied target temperature (float32 °C) |
+| 0x0E | **SET** | u8 profile | point the fan at a profile record (sets target °C) |
+| 0x11 | GET | — | duty % |
+| 0x80 | SET | u8 mode + u16 | "manual" mode — **inert on this firmware** |
+
+**CID 0x80 looks like manual control and is not.** Mode 2 only stores the
+RPM in `fan+0x6E`, which nothing consumes; mode 3's commit runs the curve
+interpolator over the duty it just injected, so the duty is discarded.
+The real model is
+
+```
+target_rpm = min( quadratic(target_temp), forced_rpm )
+```
+
+which is two writes: **CID 0x0B** (cap) and **CID 0x0E** (profile, to
+raise the ceiling). Full derivation and the live proof are in
+`decoded/FAN_SPEED.md`; the tool is `tools/fanctl/fanctl.py`.
+
+The per-fan "Override" record (CID 0x05) has a *different* layout from the
+profile records (CID 0x04) — temp at `+0x1C`, hot RPM 8500 at `+0x24`,
+min RPM 3000 at `+0x22`, max RPM 8000 at `+0x20`. The profile records put
+the target temperature at `+0x30` as a float32 in degrees C.
+
+---
+
+## Update 2026-10-24 (later) — the whole table, and the 0x80 wall
+
+The complete CID list, from `FUN_100C6610`. **"Reachable" means the EC
+actually dispatches it when the request comes from the Linux cdev.**
+
+| CID | dir | payload | what it does | reachable |
+|---|---|---|---|---|
+| 0x01 | GET | — | measured RPM (u16) | yes |
+| 0x02 | GET | — | 0x0E-byte float blob (2.0, 0.5, 0.2, u16) | yes |
+| 0x03 | GET | — | fan count | yes |
+| 0x04 | GET | — | fan **profile record** by id (0x40 B) | yes |
+| 0x05 | GET | — | per-fan record (always the Override) | yes |
+| 0x06 | GET | — | the fan's 0x26 B config blob (the quadratic) | yes |
+| 0x07 | GET | — | runtime curve header (tail is racy) | yes |
+| 0x08 | SET | u16 ×2 | raw registers A/B (`fan+0x78`/`+0x7A`) | yes |
+| 0x09 | GET | u16 ×2 | the same two registers | yes |
+| 0x0B | **SET** | u16 rpm | the **forced-RPM cap** (`fan+0x76`) | yes |
+| 0x0C | **SET** | **f32 °C** | the **target-temperature override** (`fan+0x84` + `fan+0x88`) | yes |
+| 0x0D | GET | — | the applied target temperature | yes |
+| 0x0E | **SET** | u8 id | the fan's **profile record** (sets the target °C) | yes |
+| 0x0F | SET | u8 | the policy byte (`DAT_30038C24`): 1 threshold, 2 curve | yes |
+| 0x10 | GET | — | the policy byte | yes |
+| 0x11 | GET | — | duty % | yes |
+| 0x12 | SET | f32 °C | set the cap to the rpm the quadratic gives for that temperature (0.0 = cap off) | yes |
+| 0x13 | GET | — | a temperature | yes |
+| 0x80 | SET | u8 + u16 | "manual mode" | **no** |
+| 0x81 | SET | 0x40 | the fan's curve params | **no** |
+| 0x83 | SET | 0x40 | write a whole record into a fan | **no** |
+| 0x84 | SET | 0x26 | write the fan's config blob | **no** |
+
+### The 0x80 wall
+
+The EC's dispatcher compares the command id as a **signed** char, so
+0x83 and 0x84 are implemented properly — but the EC **drops every command
+with bit 7 set** before the dispatcher runs. Measured:
+
+* GET 0x80..0x85 → no response, the cdev times out (-110). GETs of the
+  low CIDs answer normally.
+* SET 0x83 with a 64-byte payload → the request is accepted and the
+  fan's record is **byte-for-byte unchanged** afterwards.
+
+The SET result is a trap worth spelling out: a SET is sent with
+`flags = 0` (no `HAS_RESPONSE`), so **the kernel returns success as soon
+as the request is queued**. A "status 0" from a SET is the *kernel's*
+status, not the EC's — it says the request was queued, nothing more.
+Only a GET (`flags = 1`, waits for the reply) proves the EC handled it.
+
+So the top half of the fan command table (Windows' manual mode, the curve
+params, the record write, the config write) is **EC-side code that Linux
+cannot reach**. `decoded/FAN_SPEED.md` §11 has the details.
+
+### The ceiling
+
+Pushing the EC's own model as far as it goes:
+
+```
+target  55.0 C -> EC asks  11177 rpm | peak 7450 rpm, duty 100%
+```
+
+The duty saturates at 100 % at ~7500 rpm, so the 11000 in the config blob
+is a guard on the EC's model rather than a speed the fan delivers.
+

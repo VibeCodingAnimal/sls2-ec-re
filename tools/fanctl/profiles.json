@@ -1,0 +1,32 @@
+{
+ "1": {
+  "name": "Quiet",
+  "temp": 25.0,
+  "min_rpm": 3000
+ },
+ "2": {
+  "name": "Nominal",
+  "temp": 30.0,
+  "min_rpm": 3000
+ },
+ "3": {
+  "name": "Performance",
+  "temp": 32.0,
+  "min_rpm": 3000
+ },
+ "4": {
+  "name": "dGPU_Max",
+  "temp": 45.0,
+  "min_rpm": 3000
+ },
+ "5": {
+  "name": "iGPU_Max",
+  "temp": 40.0,
+  "min_rpm": 3000
+ },
+ "6": {
+  "name": "Extreme",
+  "temp": 45.0,
+  "min_rpm": 3000
+ }
+}
