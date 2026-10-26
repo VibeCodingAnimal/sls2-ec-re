@@ -102,6 +102,27 @@ PRESETS = {
 }
 
 
+# The measured layout of this machine: fan 1 feeds the GPU, fan 2 the CPU.
+# The GPU fan watches the die and the GPU-side chassis sensors; the CPU
+# fan watches the package.
+DEFAULT_PLANS = {
+    1: (("gpu", "gskin"), [(45, 3000), (55, 3800), (60, 4600),
+                           (65, 5600), (70, 6800), (74, 7500)]),
+    2: (("cpu",), [(50, 3000), (60, 3600), (70, 5000),
+                   (78, 6800), (85, 7500)]),
+}
+
+
+def default_plan(fans):
+    """The built-in plan: a GPU curve for fan 1, a CPU curve for fan 2."""
+    out = {}
+    for fan in fans:
+        sources, points = DEFAULT_PLANS.get(
+            fan, (("cpu", "gpu"), PRESETS["balanced"]["points"]))
+        out[fan] = FanPlan(points, sources)
+    return Plan(out)
+
+
 def clamp_rpm(rpm):
     return max(RPM_MIN, min(RPM_TOP, int(round(rpm))))
 
@@ -324,10 +345,13 @@ class Plan:
     def __init__(self, fans=None):
         self.fans = fans or {}
 
-    def get(self, fan, points=None, sources=("cpu", "gpu")):
+    def get(self, fan, points=None, sources=None):
         """The plan for a fan, made up if it does not have one yet."""
         if fan not in self.fans:
-            self.fans[fan] = FanPlan(points, sources)
+            src, pts = DEFAULT_PLANS.get(
+                fan, (("cpu", "gpu"), PRESETS["balanced"]["points"]))
+            self.fans[fan] = FanPlan(points if points is not None else pts,
+                                     sources if sources else src)
         return self.fans[fan]
 
     def as_json(self):
@@ -391,8 +415,7 @@ def resolve_plan(args):
         saved = Plan.load(CURVE_PATH)
         if saved is not None:
             return saved, CURVE_PATH
-        preset = PRESETS["balanced"]
-        return _plan_for(fans, preset["points"], sources), "balanced"
+        return default_plan(fans), "default"
     preset = all_presets().get(args.preset)
     if preset is None:
         raise SystemExit("no such preset: %s" % args.preset)
@@ -502,7 +525,7 @@ def run_auto(fd, args):
     gpu = GpuTemp(args.gpu_interval)
     pilots = {}
     for fan in ctrl.fans:
-        fplan = plan.get(fan, PRESETS["balanced"]["points"], sources_of(args))
+        fplan = plan.get(fan)
         pilots[fan] = AutoPilot(ctrl, fan, fplan, args.interval, gpu)
 
     print("curve source: %s" % source)
@@ -615,9 +638,7 @@ def run_gui(fd, args):
             self.root.minsize(880, 430)
             self.mode = tk.StringVar(value="manual")
             self.rpm_var = tk.DoubleVar(value=RPM_MIN)
-            self.preset = tk.StringVar(
-                value="custom" if source == CURVE_PATH
-                else (args.preset or "balanced"))
+            self.preset = tk.StringVar(value="custom")
             self.fan_var = tk.StringVar(value=str(ctrl.fans[0]))
             self.src_vars = {name: tk.BooleanVar() for name in SOURCES}
             self.status = tk.StringVar(value="")
@@ -667,7 +688,9 @@ def run_gui(fd, args):
             row.pack(fill="x")
             ttk.Label(row, text="preset").pack(side="left")
             names = list(all_presets())
-            if source == CURVE_PATH and "custom" not in names:
+            if args.preset in names:
+                self.preset.set(args.preset)
+            else:
                 names.insert(0, "custom")
             box = ttk.Combobox(row, values=names, textvariable=self.preset,
                                state="readonly", width=11)
@@ -720,15 +743,13 @@ def run_gui(fd, args):
         def current(self):
             """The plan of the fan being edited."""
             fan = int(self.fan_var.get())
-            return self.plan.get(fan, PRESETS["balanced"]["points"],
-                                 sources_of(args))
+            return self.plan.get(fan)
 
         def rebind(self):
             """Point the pilots at the plans the plan holds now."""
             self.pilots = {}
             for fan in ctrl.fans:
-                fplan = self.plan.get(fan, PRESETS["balanced"]["points"],
-                                      sources_of(args))
+                fplan = self.plan.get(fan)
                 self.pilots[fan] = AutoPilot(ctrl, fan, fplan, args.interval, gpu)
 
         def refresh_table(self):
@@ -980,8 +1001,7 @@ def main():
         plan, source = resolve_plan(args)
         print("plan source: %s" % source)
         for fan in fans_of(args):
-            fplan = plan.get(fan, PRESETS["balanced"]["points"],
-                             sources_of(args))
+            fplan = plan.get(fan)
             print("fan %d watches %s" % (fan, ", ".join(fplan.sources)))
             print("  %s" % " ".join("%gC=%d" % (t, r)
                                    for t, r in fplan.curve.points))

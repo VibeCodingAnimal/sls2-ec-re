@@ -683,9 +683,28 @@ fans are always given the same id, so the EC never splits them either.
 **Per-fan control is a userspace feature only** — it works because the cap
 (`FAN CID 0x0B`) is written per fan, not because the EC wants to.
 
-What is still unknown: which physical fan is the GPU-side one. The
-per-fan override record (`FAN CID 0x05`) answers for fan 1 and times out
-for fan 2, and it carries no side information. The decisive test is
-functional — one fan's cap high, the other's low, under a GPU load, and
-watch which side's `I_RTS3`/`I_RTS4` climbs.
+The per-fan override record (`FAN CID 0x05`) answers for fan 1 and times
+out for fan 2, and it carries no side information, so the mapping had to
+be measured.
+
+### 14.4 Which fan is the GPU-side one — measured
+
+One fan's cap at 7500 rpm, the other's at 3000, 150 s of GPU load
+(4096² matmul), chassis sensors averaged over the last 40 s:
+
+| | fast fan | slow fan | GPU die | I_RTS3 | I_RTS4 | I_RTS1/2/5/6 |
+|---|---|---|---|---|---|---|
+| fan 1 fast | **fan 1** (7513 rpm) | fan 2 (2998) | 71.0 °C | 50.8 | 57.6 | 39-40 |
+| fan 2 fast | fan 2 (7270 rpm) | **fan 1** (3080) | **72.0 °C** | **52.7** | **59.5** | 40-41 |
+
+Slowing **fan 1** down raised the GPU die by 1 °C and the two GPU-side
+chassis sensors by ~2 °C, while the four CPU-side sensors moved by
+0.3-0.8 °C. **Fan 1 is the GPU-side fan, fan 2 is the CPU-side one.**
+
+The second run of the same test came out void and is worth recording:
+the caps were set the same way, but the EC's floor had climbed (the fan
+module was at 30-33 °C) and **it overrode the 3000 cap** — both fans ran
+up to ~6100 rpm and the split never happened. That is §14.1 in the wild:
+a low cap only holds while the EC's own demand is below it.
+
 

@@ -87,12 +87,17 @@ thermistor and the same profile — but the cap (`FAN CID 0x0B`) is written
 per fan, so the userspace loop can. Pick a fan in the GUI's *fan* box, give
 it the sensors you want it to watch, and give it a curve.
 
-That matters because the EC's own reaction to heat is one-sided: it follows
-the CPU side and never sees the GPU. With the cap at 3000 rpm and a 4096²
-matmul running, the GPU reached 69 °C and the fans never left 3000 rpm.
-Under a CPU load the same cap gave 4130-5696 rpm. So the EC already covers
-the CPU side (badly, and late), and nothing covers the GPU side at all —
-which is exactly the fan the GPU curve belongs on.
+**Fan 1 is the GPU-side fan, fan 2 the CPU-side one** — measured, not
+guessed: with fan 1's cap at 3000 and fan 2's at 7500 under a GPU load,
+the GPU die ran 1 °C hotter and the GPU-side chassis sensors (`I_RTS3`,
+`I_RTS4`) ~2 °C hotter than with the fans the other way round.
+
+That split matters because the EC's own reaction to heat is one-sided: it
+follows the CPU side and never sees the GPU. With the cap at 3000 rpm and
+a 4096² matmul running, the GPU reached 69 °C and the fans never left
+3000 rpm. Under a CPU load the same cap gave 4130-5696 rpm. So the EC
+already covers the CPU side (badly, and late), and nothing covers the GPU
+side at all — which is exactly the fan the GPU curve belongs on.
 
 `tools/fanctl/fancurve` is the launcher: the SSAM cdev is `0600 root:root`,
 so it goes through `pkexec` and hands the GUI the live XWayland cookie and
