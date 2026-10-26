@@ -81,6 +81,19 @@ GPU, chassis and the EC's own sensor), with a slider for manual control,
 presets, an editable curve saved to `~/.config/fancurve/curve.json`, and a
 deadman that puts the fans back to 3000 rpm on every exit path.
 
+**Each fan has its own curve and its own set of temperatures to watch.**
+The EC itself does not split the fans — both run off the same fan-module
+thermistor and the same profile — but the cap (`FAN CID 0x0B`) is written
+per fan, so the userspace loop can. Pick a fan in the GUI's *fan* box, give
+it the sensors you want it to watch, and give it a curve.
+
+That matters because the EC's own reaction to heat is one-sided: it follows
+the CPU side and never sees the GPU. With the cap at 3000 rpm and a 4096²
+matmul running, the GPU reached 69 °C and the fans never left 3000 rpm.
+Under a CPU load the same cap gave 4130-5696 rpm. So the EC already covers
+the CPU side (badly, and late), and nothing covers the GPU side at all —
+which is exactly the fan the GPU curve belongs on.
+
 `tools/fanctl/fancurve` is the launcher: the SSAM cdev is `0600 root:root`,
 so it goes through `pkexec` and hands the GUI the live XWayland cookie and
 the user's config directory. `tools/fanctl/sls2-fan-curve.desktop` puts it
@@ -93,7 +106,7 @@ loop read the same one:
 
 | where | what |
 |---|---|
-| `~/.config/fancurve/curve.json` | the curve the GUI's **Save** button writes, and the default for `--auto` |
+| `~/.config/fancurve/curve.json` | the curves the GUI's **Save** button writes, and the default for `--auto` |
 | `~/.config/fancurve/presets.json` | named curves the GUI's **Keep** button writes, listed in the preset box next to the built-in ones |
 | `PRESETS` in `fancurve.py` | the built-in ones, checked into this repo |
 
@@ -102,6 +115,18 @@ make it the curve the auto loop follows, or **Keep** to give it a name.
 Points above 85 °C are unreachable — the duty saturates at 7500 rpm — and
 the CPU package idles at 53-57 °C, so the quiet end of the curve has to
 reach past 55 °C before it does anything.
+
+Two things the numbers have to live with:
+
+- **The cap is a floor, not a command.** The EC keeps a demand of its own
+  that rises with the fan module's temperature (~4000 rpm at 29.8 °C,
+  ~5700 rpm at 41.5 °C), and the fans run at `max(cap, that)`. A curve
+  point under the EC's demand has no effect; a curve point over it buys
+  the extra cooling.
+- **The sensors are not interchangeable.** `cpu` is the CPU package,
+  `gpu` the NVIDIA die, `skin` the chassis, `ec` the fan module's own
+  thermistor. The GPU-side chassis sensors (`I_RTS3`, `I_RTS4`) are the
+  ones that move with a GPU load.
 
 `tools/cdev-probe/` holds the raw probes used to decode the command table;
 `tools/cdev-probe/fan_temp_boost.py` is the CID 0x0C door.

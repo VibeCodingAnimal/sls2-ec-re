@@ -616,3 +616,76 @@ the user's desktop and the saved curve stays the user's own file. The
 The curve lives in `~/.config/fancurve/curve.json` and is what both the GUI
 and `--auto` use; named curves the user keeps from the GUI go to
 `presets.json` beside it.
+
+## 14. The EC's floor, and why one fan is not enough (2026-10-25)
+
+### 14.1 The cap is a floor, not a command
+
+§13.4 says the target is `min(max(curve(fan_thermistor), cap), ceiling)`.
+Live data says the same thing and gives the curve a shape:
+
+| fan module temp | fans ran at | commanded cap |
+|---|---|---|
+| 20.8 °C | 3000 rpm | 3000 |
+| 29.8 °C | **3990 rpm** | 3000 |
+| 31.0 °C | 4130 rpm | 3000 |
+| 35.9 °C | 5077 rpm | 3000 |
+| 41.5 °C | 5696 rpm | 3000 |
+
+The cap was 3000 rpm in every one of those, and the fans went well above
+it. So the EC's own curve is the floor and the cap is what we add on top:
+**the fans run at `max(cap, ec_curve)`.** The curve is a ramp of roughly
+145 rpm per °C of the fan module's thermistor, not the 0.40 °C step §13.3
+read out of the record — the span in that decode needs another look, but
+the ramp is what the hardware does.
+
+Two consequences for `fancurve.py`:
+
+- A curve point below the EC's demand does nothing. On a warm machine the
+  floor is already ~4000 rpm.
+- The cap *is* an accurate command when it is above the floor (3000 →
+  3001, 5500 → 5567, 7500 → 7318 rpm, §13.5).
+
+### 14.2 The EC watches the CPU side and never sees the GPU
+
+Same 3000 rpm cap, two different loads:
+
+```
+GPU load (4096² matmul, 75 s):  cpu 60-69 C  gpu 57-69 C  fan 3000 rpm  (module 20.8 C)
+CPU load (12 processes, 70 s):  cpu 60-69 C              fan 4130-5696 rpm
+```
+
+The GPU load pushed the die to 69 °C and the fans did not move: the EC's
+curve is fed by the fan module's thermistor, which sits on the CPU side of
+the board, and the GPU's heat never reaches it. The applied target
+(`FAN CID 0x0D`) stays at 30 °C throughout, and the curve header is
+unchanged — the EC is not re-planning, it is only reading a hotter sensor.
+
+**So the EC already covers the CPU side (late, and only as a floor) and
+covers the GPU side not at all.** That is the whole argument for closing
+the loop in userspace, and for giving the GPU side a fan of its own.
+
+### 14.3 The fans are not identical
+
+`FAN CID 0x06` (the per-fan config blob) and the quadratic in the fan's
+`0x26B` structure differ between the two fans:
+
+| fan | a | b | c | ceiling at a 30 °C target |
+|---|---|---|---|---|
+| 1 | 5.0229 | -152.69 | 4381.5 | 4321 rpm |
+| 2 | 4.4829 | -132.07 | 4221.9 | 4294 rpm |
+
+Two different curves, two different ceilings, one shared thermistor
+(`FAN CID 0x13` reads the same value for both fans). The platform records
+carry a per-fan profile id at `+0x24`/`+0x25`, but on this machine both
+fans are always given the same id, so the EC never splits them either.
+
+**Per-fan control is a userspace feature only** — it works because the cap
+(`FAN CID 0x0B`) is written per fan, not because the EC wants to.
+
+What is still unknown: which physical fan is the GPU-side one. The
+per-fan override record (`FAN CID 0x05`) answers for fan 1 and times out
+for fan 2, and it carries no side information. The decisive test is
+functional — one fan's cap high, the other's low, under a GPU load, and
+watch which side's `I_RTS3`/`I_RTS4` climbs.
+

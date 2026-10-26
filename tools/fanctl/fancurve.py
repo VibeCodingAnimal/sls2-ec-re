@@ -64,6 +64,7 @@ import fanctl
 RPM_MIN = 3000      # the fan config's minimum; the EC will not go lower
 RPM_TOP = 7500      # the duty saturates here; 11000 is a model guard
 CID_EC_TEMP = 0x13  # the fan module's own temperature
+SOURCES = ("cpu", "gpu", "skin", "ec")
 
 CONFIG_DIR = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
@@ -282,25 +283,100 @@ def save_preset(name, points, desc=""):
     fix_owner(PRESET_PATH)
 
 
-def resolve_curve(args):
-    """The curve to run: --points, then a file, then the saved one, then
-    the preset.  Returns the curve and a note of where it came from."""
+class FanPlan:
+    """One fan: the curve it follows and the temperatures it watches."""
+
+    def __init__(self, points=None, sources=("cpu", "gpu")):
+        self.curve = Curve(points or [])
+        self.sources = tuple(sources)
+
+    def as_json(self):
+        return {"sources": list(self.sources), "points": self.curve.as_json()}
+
+
+class Plan:
+    """The whole configuration: one plan per fan."""
+
+    def __init__(self, fans=None):
+        self.fans = fans or {}
+
+    def get(self, fan, points=None, sources=("cpu", "gpu")):
+        """The plan for a fan, made up if it does not have one yet."""
+        if fan not in self.fans:
+            self.fans[fan] = FanPlan(points, sources)
+        return self.fans[fan]
+
+    def as_json(self):
+        return {"fans": {str(f): p.as_json()
+                         for f, p in sorted(self.fans.items())}}
+
+    def save(self, path=CURVE_PATH):
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(self.as_json(), f, indent=1)
+        os.replace(tmp, path)
+        fix_owner(path)
+
+    @staticmethod
+    def from_json(raw):
+        if not isinstance(raw, dict):
+            return None
+        if "fans" in raw and isinstance(raw["fans"], dict):
+            fans = {}
+            for key, spec in raw["fans"].items():
+                if not isinstance(spec, dict):
+                    continue
+                try:
+                    fan = int(key)
+                except ValueError:
+                    continue
+                fans[fan] = FanPlan(spec.get("points", []),
+                                    spec.get("sources", ("cpu", "gpu")))
+            return Plan(fans)
+        if "points" in raw:
+            # the old single-curve file: both fans got the same curve
+            pts = raw["points"]
+            src = raw.get("sources", ("cpu", "gpu"))
+            return Plan({1: FanPlan(pts, src), 2: FanPlan(pts, src)})
+        return None
+
+    @staticmethod
+    def load(path):
+        try:
+            with open(path) as f:
+                raw = json.load(f)
+        except (OSError, ValueError):
+            return None
+        return Plan.from_json(raw)
+
+
+def resolve_plan(args):
+    """The plan to run: --points, then a file, then the saved one, then
+    the preset.  Returns the plan and a note of where it came from."""
+    fans = fans_of(args)
+    sources = sources_of(args)
     if args.curve_points:
-        return Curve(args.curve_points), "command line"
+        return _plan_for(fans, args.curve_points, sources), "command line"
     if args.curve:
         curve = Curve.load(args.curve)
         if curve is None:
             raise SystemExit("cannot read the curve file: %s" % args.curve)
-        return curve, args.curve
+        return _plan_for(fans, curve.as_json(), sources), args.curve
     if args.preset is None:
-        curve = Curve.load(CURVE_PATH)
-        if curve is not None:
-            return curve, CURVE_PATH
-        return Curve(PRESETS["balanced"]["points"]), "balanced"
+        saved = Plan.load(CURVE_PATH)
+        if saved is not None:
+            return saved, CURVE_PATH
+        preset = PRESETS["balanced"]
+        return _plan_for(fans, preset["points"], sources), "balanced"
     preset = all_presets().get(args.preset)
     if preset is None:
         raise SystemExit("no such preset: %s" % args.preset)
-    return Curve(preset["points"]), args.preset
+    return _plan_for(fans, preset["points"], sources), args.preset
+
+
+def _plan_for(fans, points, sources):
+    return Plan({fan: FanPlan(points, sources) for fan in fans})
 
 
 # ---------------------------------------------------------------- controller
@@ -313,12 +389,12 @@ class Controller:
         self.fans = list(fans)
         self.commanded = {}
 
-    def command(self, rpm):
-        """Aim every fan at rpm.  Returns the value actually written."""
+    def command(self, rpm, fans=None):
+        """Aim the given fans at rpm.  Returns the value actually written."""
         rpm = clamp_rpm(rpm)
-        for fan in self.fans:
+        for fan in (self.fans if fans is None else fans):
             fanctl.set_cap(self.fd, fan, rpm)
-        self.commanded = {f: rpm for f in self.fans}
+            self.commanded[fan] = rpm
         return rpm
 
     def restore(self):
@@ -345,15 +421,17 @@ def deadman(ctrl):
 # ----------------------------------------------------------------- auto mode
 
 class AutoPilot:
-    """Reads the temperatures, runs the curve, commands the cap."""
+    """One fan: reads its temperatures, runs its curve, commands its cap."""
 
-    def __init__(self, ctrl, curve, sources=("cpu", "gpu"), interval=1.0,
-                 gpu_interval=5.0, alpha=0.25, deadband=50):
+    def __init__(self, ctrl, fan, plan, interval=1.0, gpu=None,
+                 alpha=0.25, deadband=50):
         self.ctrl = ctrl
-        self.curve = curve
-        self.sources = list(sources)
+        self.fan = fan
+        self.plan = plan
+        self.curve = plan.curve
+        self.sources = list(plan.sources)
         self.interval = interval
-        self.gpu = GpuTemp(gpu_interval)
+        self.gpu = gpu if gpu is not None else GpuTemp(5.0)
         self.alpha = alpha
         self.deadband = deadband
         self.smoothed = None
@@ -369,7 +447,7 @@ class AutoPilot:
         if "skin" in self.sources:
             vals["skin"] = skin_temp()
         if "ec" in self.sources:
-            vals["ec"] = ec_temp(self.ctrl.fd)
+            vals["ec"] = ec_temp(self.ctrl.fd, self.fan)
         vals = {k: v for k, v in vals.items() if v is not None}
         if not vals:
             return None, vals
@@ -386,38 +464,45 @@ class AutoPilot:
             self.smoothed += (temp - self.smoothed) * self.alpha
         want = clamp_rpm(self.curve.rpm(self.smoothed))
         if self.last is None or abs(want - self.last) >= self.deadband:
-            self.ctrl.command(want)
+            self.ctrl.command(want, fans=[self.fan])
             self.last = want
         return want, vals
 
 
 def run_auto(fd, args):
-    curve, source = resolve_curve(args)
+    plan, source = resolve_plan(args)
     ctrl = Controller(fd, fans_of(args))
     deadman(ctrl)
-    pilot = AutoPilot(ctrl, curve, sources_of(args), args.interval,
-                       args.gpu_interval)
+    gpu = GpuTemp(args.gpu_interval)
+    pilots = {}
+    for fan in ctrl.fans:
+        fplan = plan.get(fan, PRESETS["balanced"]["points"], sources_of(args))
+        pilots[fan] = AutoPilot(ctrl, fan, fplan, args.interval, gpu)
 
-    print("auto: %s" % ", ".join(s for s in pilot.sources))
-    print("curve (%s): %s" % (source, " ".join("%gC=%d" % (t, r)
-                                              for t, r in curve.points)))
+    print("curve source: %s" % source)
+    for fan, pilot in pilots.items():
+        print("fan %d watches %s" % (fan, ", ".join(pilot.sources)))
+        print("  %s" % " ".join("%gC=%d" % (t, r) for t, r in pilot.curve.points))
     deadline = time.time() + args.seconds if args.seconds else None
     last_print = 0.0
-    shown = None
+    shown = {}
     try:
         while deadline is None or time.time() < deadline:
-            rpm, vals = pilot.step()
-            if rpm is None:
-                print("no temperature source is readable", file=sys.stderr)
-                return 1
+            out = []
+            for fan, pilot in pilots.items():
+                rpm, vals = pilot.step()
+                if rpm is None:
+                    print("no temperature source is readable", file=sys.stderr)
+                    return 1
+                out.append("f%d %s -> %d rpm" % (
+                    fan,
+                    " ".join("%s=%.1f" % (k, v)
+                             for k, v in sorted(vals.items())), rpm))
             now = time.monotonic()
-            if rpm != shown or now - last_print > 10:
+            if out != shown or now - last_print > 10:
                 last_print = now
-                shown = rpm
-                print("%s  ->  %d rpm" % (
-                    "  ".join("%s=%.1f" % (k, v)
-                              for k, v in sorted(vals.items())), rpm),
-                    flush=True)
+                shown = out
+                print("  |  ".join(out), flush=True)
             time.sleep(args.interval)
     finally:
         if not args.keep:
@@ -437,9 +522,10 @@ def run_gui(fd, args):
               file=sys.stderr)
         return 1
 
-    curve, source = resolve_curve(args)
+    plan, source = resolve_plan(args)
     ctrl = Controller(fd, fans_of(args))
     deadman(ctrl)
+    gpu = GpuTemp(args.gpu_interval)
 
     class Plot(tk.Canvas):
         """The curve, the live temperature, and the operating point."""
@@ -450,7 +536,7 @@ def run_gui(fd, args):
         def __init__(self, master):
             super().__init__(master, width=430, height=250,
                              background="#11161b", highlightthickness=0)
-            self.curve = curve
+            self.curve = None
             self.temp = None
             self.rpm = None
             self.bind("<Configure>", lambda e: self.draw())
@@ -499,17 +585,20 @@ def run_gui(fd, args):
         def __init__(self, root):
             self.root = root
             self.root.title("SLS2 fan curve")
-            self.root.geometry("1000x470")
-            self.root.minsize(860, 400)
+            self.root.geometry("1040x500")
+            self.root.minsize(880, 430)
             self.mode = tk.StringVar(value="manual")
             self.rpm_var = tk.DoubleVar(value=RPM_MIN)
             self.preset = tk.StringVar(
                 value="custom" if source == CURVE_PATH
                 else (args.preset or "balanced"))
+            self.fan_var = tk.StringVar(value=str(ctrl.fans[0]))
+            self.src_vars = {name: tk.BooleanVar() for name in SOURCES}
             self.status = tk.StringVar(value="")
             self.manual = None
-            self.pilot = AutoPilot(ctrl, curve, sources_of(args),
-                                   args.interval, args.gpu_interval)
+            self.plan = plan
+            self.pilots = {}
+            self.live = {}
             self.last_write = 0.0
 
             top = ttk.Frame(root)
@@ -555,11 +644,24 @@ def run_gui(fd, args):
             if source == CURVE_PATH and "custom" not in names:
                 names.insert(0, "custom")
             box = ttk.Combobox(row, values=names, textvariable=self.preset,
-                               state="readonly", width=12)
+                               state="readonly", width=11)
             self.box = box
             box.pack(side="left", padx=6)
             box.bind("<<ComboboxSelected>>", self.on_preset)
             ttk.Button(row, text="Load", command=self.on_preset).pack(side="left")
+            ttk.Label(row, text="fan").pack(side="left", padx=(12, 0))
+            fan_box = ttk.Combobox(row, values=[str(f) for f in ctrl.fans],
+                                   textvariable=self.fan_var, state="readonly",
+                                   width=4)
+            fan_box.pack(side="left", padx=6)
+            fan_box.bind("<<ComboboxSelected>>", self.on_fan)
+
+            wrow = ttk.Frame(right)
+            wrow.pack(fill="x", pady=(4, 0))
+            ttk.Label(wrow, text="watches").pack(side="left")
+            for name in SOURCES:
+                ttk.Checkbutton(wrow, text=name, variable=self.src_vars[name],
+                                command=self.on_sources).pack(side="left", padx=4)
 
             self.table = ttk.Treeview(right, columns=("temp", "rpm"),
                                       show="headings", height=8)
@@ -580,17 +682,49 @@ def run_gui(fd, args):
                        command=self.on_keep).pack(side="left", padx=4)
             ttk.Button(brow, text="Reload",
                        command=self.on_reload).pack(side="left", padx=4)
-            ttk.Label(right, textvariable=self.status, wraplength=380,
+            ttk.Label(right, textvariable=self.status, wraplength=400,
                       justify="left").pack(anchor="w", pady=(8, 0))
-            self.refresh_table()
+            self.rebind()
+            self.on_fan()
             self.root.protocol("WM_DELETE_WINDOW", self.quit)
             self.root.after(300, self.poll)
 
         # ---------------------------------------------------------- actions
+        def current(self):
+            """The plan of the fan being edited."""
+            fan = int(self.fan_var.get())
+            return self.plan.get(fan, PRESETS["balanced"]["points"],
+                                 sources_of(args))
+
+        def rebind(self):
+            """Point the pilots at the plans the plan holds now."""
+            self.pilots = {}
+            for fan in ctrl.fans:
+                fplan = self.plan.get(fan, PRESETS["balanced"]["points"],
+                                      sources_of(args))
+                self.pilots[fan] = AutoPilot(ctrl, fan, fplan, args.interval, gpu)
+
         def refresh_table(self):
             self.table.delete(*self.table.get_children())
-            for temp, rpm in curve.points:
+            for temp, rpm in self.current().curve.points:
                 self.table.insert("", "end", values=("%g" % temp, "%g" % rpm))
+
+        def on_fan(self, _event=None):
+            """Show the other fan's curve and sources."""
+            fplan = self.current()
+            for name in SOURCES:
+                self.src_vars[name].set(name in fplan.sources)
+            self.plot.curve = fplan.curve
+            self.refresh_table()
+            self.plot.draw()
+
+        def on_sources(self):
+            picked = tuple(name for name in SOURCES if self.src_vars[name].get())
+            if not picked:
+                self.src_vars[SOURCES[0]].set(True)
+                picked = (SOURCES[0],)
+            self.current().sources = picked
+            self.rebind()
 
         def on_mode(self):
             if self.mode.get() == "auto":
@@ -617,12 +751,13 @@ def run_gui(fd, args):
             preset = all_presets().get(name)
             if preset is None:
                 return
-            curve.points = sorted((float(t), float(r))
-                                  for t, r in preset["points"])
+            self.current().curve.points = sorted((float(t), float(r))
+                                                 for t, r in preset["points"])
             self.refresh_table()
             self.plot.draw()
 
         def on_add(self):
+            curve = self.current().curve
             last = curve.points[-1][0] if curve.points else 40.0
             temp = simpledialog.askfloat("Add point", "temperature (C)",
                                           initialvalue=last + 5.0)
@@ -651,6 +786,7 @@ def run_gui(fd, args):
                                             initialvalue=float(rpm))
             if new_rpm is None:
                 return
+            curve = self.current().curve
             curve.points = [(t, r) for t, r in curve.points
                             if (t, r) != (float(temp), float(rpm))]
             curve.points.append((float(new_temp), clamp_rpm(new_rpm)))
@@ -663,6 +799,7 @@ def run_gui(fd, args):
             if not sel:
                 return
             temp, rpm = self.table.item(sel[0], "values")
+            curve = self.current().curve
             curve.points = [(t, r) for t, r in curve.points
                             if (t, r) != (float(temp), float(rpm))]
             self.refresh_table()
@@ -670,11 +807,11 @@ def run_gui(fd, args):
 
         def on_save(self):
             try:
-                curve.save()
+                self.plan.save()
             except OSError as exc:
                 self.status.set("could not save: %s" % exc)
                 return
-            self.status.set("saved to %s - the auto loop uses this curve"
+            self.status.set("saved to %s - the auto loop uses these curves"
                             % CURVE_PATH)
 
         def on_keep(self):
@@ -686,7 +823,7 @@ def run_gui(fd, args):
                 return
             name = name.strip()
             try:
-                save_preset(name, curve.points)
+                save_preset(name, self.current().curve.points)
             except OSError as exc:
                 self.status.set("could not keep: %s" % exc)
                 return
@@ -696,14 +833,14 @@ def run_gui(fd, args):
             self.status.set("kept as %r in %s" % (name, PRESET_PATH))
 
         def on_reload(self):
-            """Re-read the curve from disk, for hand-edited numbers."""
-            saved = Curve.load(CURVE_PATH)
+            """Re-read the curves from disk, for hand-edited numbers."""
+            saved = Plan.load(CURVE_PATH)
             if saved is None:
                 self.status.set("no saved curve at %s yet" % CURVE_PATH)
                 return
-            curve.points = saved.points
-            self.refresh_table()
-            self.plot.draw()
+            self.plan = saved
+            self.rebind()
+            self.on_fan()
             self.status.set("reloaded %s" % CURVE_PATH)
 
         def restore(self):
@@ -714,20 +851,28 @@ def run_gui(fd, args):
 
         # ------------------------------------------------------------- poll
         def poll(self):
-            want = None
             if self.mode.get() == "auto":
-                want, vals = self.pilot.step()
-                self.plot.temp = self.pilot.smoothed
+                for fan, pilot in self.pilots.items():
+                    want, vals = pilot.step()
+                    self.live[fan] = (want, vals)
+                sel = self.pilots[int(self.fan_var.get())]
+                want, vals = self.live.get(sel.fan, (None, {}))
+                self.plot.temp = sel.smoothed
                 self.plot.rpm = want
                 self.plot.draw()
                 if want is not None:
                     self.rpm_var.set(want)
                     self.rpm_label.configure(text="%d rpm" % want)
-                temps = "  ".join("%s=%.1f" % (k, v)
-                                   for k, v in sorted(vals.items()))
+                temps = "   ".join(
+                    "f%d %s -> %d" % (
+                        fan,
+                        " ".join("%s=%.1f" % (k, v)
+                                 for k, v in sorted(vals.items())),
+                        rpm or 0)
+                    for fan, (rpm, vals) in sorted(self.live.items()))
             else:
                 temps = "cpu=%.1f  gpu=%.1f" % (
-                    cpu_temp() or 0.0, self.pilot.gpu.get() or 0.0)
+                    cpu_temp() or 0.0, gpu.get() or 0.0)
             fans = "  ".join(
                 "f%d %drpm %d%%" % (f, fanctl.fan_rpm(fd, f) or 0,
                                     fanctl.fan_duty(fd, f) or 0)
@@ -792,13 +937,27 @@ def main():
     ap.add_argument("--restore", action="store_true",
                     help="put the fans back to %d rpm" % RPM_MIN)
     ap.add_argument("--list-presets", action="store_true")
+    ap.add_argument("--show-plan", action="store_true",
+                    help="print the curve each fan would follow")
     args = ap.parse_args()
+    args.curve_points = None
 
     if args.list_presets:
         for name, preset in sorted(all_presets().items()):
             print("%-10s %s" % (name, preset["desc"]))
             print("           %s" % " ".join("%gC=%d" % (t, r)
                                            for t, r in preset["points"]))
+        return 0
+
+    if args.show_plan:
+        plan, source = resolve_plan(args)
+        print("plan source: %s" % source)
+        for fan in fans_of(args):
+            fplan = plan.get(fan, PRESETS["balanced"]["points"],
+                             sources_of(args))
+            print("fan %d watches %s" % (fan, ", ".join(fplan.sources)))
+            print("  %s" % " ".join("%gC=%d" % (t, r)
+                                   for t, r in fplan.curve.points))
         return 0
 
     if not os.path.exists(fanctl.CDEV_PATH):
