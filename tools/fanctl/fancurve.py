@@ -69,6 +69,7 @@ CONFIG_DIR = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "fancurve")
 CURVE_PATH = os.path.join(CONFIG_DIR, "curve.json")
+PRESET_PATH = os.path.join(CONFIG_DIR, "presets.json")
 
 # A curve is a list of (temperature, rpm) points.  The presets below are
 # calibrated against this machine: the CPU package idles at 53-57 C and
@@ -229,6 +230,77 @@ class Curve:
         with open(tmp, "w") as f:
             json.dump({"points": self.as_json()}, f, indent=1)
         os.replace(tmp, path)
+        fix_owner(path)
+
+
+def fix_owner(path):
+    """pkexec runs us as root; leave the config files Otter's own."""
+    uid = os.environ.get("SUDO_UID")
+    gid = os.environ.get("SUDO_GID")
+    if not uid or not gid:
+        return
+    try:
+        os.chown(path, int(uid), int(gid))
+        os.chown(os.path.dirname(path), int(uid), int(gid))
+    except (OSError, ValueError):
+        pass
+
+
+def all_presets():
+    """The built-in presets plus any the user saved."""
+    presets = dict(PRESETS)
+    try:
+        with open(PRESET_PATH) as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return presets
+    if not isinstance(raw, dict):
+        return presets
+    for name, spec in raw.items():
+        if not isinstance(spec, dict) or "points" not in spec:
+            continue
+        presets[name] = {"desc": spec.get("desc", ""),
+                         "points": spec["points"]}
+    return presets
+
+
+def save_preset(name, points, desc=""):
+    """Keep a tuned curve under its own name, next to the saved one."""
+    try:
+        with open(PRESET_PATH) as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    raw[name] = {"desc": desc, "points": [[t, r] for t, r in points]}
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    tmp = PRESET_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(raw, f, indent=1)
+    os.replace(tmp, PRESET_PATH)
+    fix_owner(PRESET_PATH)
+
+
+def resolve_curve(args):
+    """The curve to run: --points, then a file, then the saved one, then
+    the preset.  Returns the curve and a note of where it came from."""
+    if args.curve_points:
+        return Curve(args.curve_points), "command line"
+    if args.curve:
+        curve = Curve.load(args.curve)
+        if curve is None:
+            raise SystemExit("cannot read the curve file: %s" % args.curve)
+        return curve, args.curve
+    if args.preset is None:
+        curve = Curve.load(CURVE_PATH)
+        if curve is not None:
+            return curve, CURVE_PATH
+        return Curve(PRESETS["balanced"]["points"]), "balanced"
+    preset = all_presets().get(args.preset)
+    if preset is None:
+        raise SystemExit("no such preset: %s" % args.preset)
+    return Curve(preset["points"]), args.preset
 
 
 # ---------------------------------------------------------------- controller
@@ -320,15 +392,15 @@ class AutoPilot:
 
 
 def run_auto(fd, args):
-    curve = Curve(args.curve_points) if args.curve_points else \
-        (Curve.load(args.curve) or Curve(PRESETS[args.preset]["points"]))
+    curve, source = resolve_curve(args)
     ctrl = Controller(fd, fans_of(args))
     deadman(ctrl)
     pilot = AutoPilot(ctrl, curve, sources_of(args), args.interval,
                        args.gpu_interval)
 
     print("auto: %s" % ", ".join(s for s in pilot.sources))
-    print("curve: %s" % " ".join("%gC=%d" % (t, r) for t, r in curve.points))
+    print("curve (%s): %s" % (source, " ".join("%gC=%d" % (t, r)
+                                              for t, r in curve.points)))
     deadline = time.time() + args.seconds if args.seconds else None
     last_print = 0.0
     shown = None
@@ -365,8 +437,7 @@ def run_gui(fd, args):
               file=sys.stderr)
         return 1
 
-    curve = Curve(args.curve_points) if args.curve_points else \
-        (Curve.load(CURVE_PATH) or Curve(PRESETS[args.preset]["points"]))
+    curve, source = resolve_curve(args)
     ctrl = Controller(fd, fans_of(args))
     deadman(ctrl)
 
@@ -432,7 +503,9 @@ def run_gui(fd, args):
             self.root.minsize(860, 400)
             self.mode = tk.StringVar(value="manual")
             self.rpm_var = tk.DoubleVar(value=RPM_MIN)
-            self.preset = tk.StringVar(value=args.preset)
+            self.preset = tk.StringVar(
+                value="custom" if source == CURVE_PATH
+                else (args.preset or "balanced"))
             self.status = tk.StringVar(value="")
             self.manual = None
             self.pilot = AutoPilot(ctrl, curve, sources_of(args),
@@ -478,9 +551,12 @@ def run_gui(fd, args):
             row = ttk.Frame(right)
             row.pack(fill="x")
             ttk.Label(row, text="preset").pack(side="left")
-            names = list(PRESETS)
+            names = list(all_presets())
+            if source == CURVE_PATH and "custom" not in names:
+                names.insert(0, "custom")
             box = ttk.Combobox(row, values=names, textvariable=self.preset,
                                state="readonly", width=12)
+            self.box = box
             box.pack(side="left", padx=6)
             box.bind("<<ComboboxSelected>>", self.on_preset)
             ttk.Button(row, text="Load", command=self.on_preset).pack(side="left")
@@ -500,6 +576,10 @@ def run_gui(fd, args):
             ttk.Button(brow, text="Remove",
                        command=self.on_remove).pack(side="left", padx=4)
             ttk.Button(brow, text="Save", command=self.on_save).pack(side="left")
+            ttk.Button(brow, text="Keep",
+                       command=self.on_keep).pack(side="left", padx=4)
+            ttk.Button(brow, text="Reload",
+                       command=self.on_reload).pack(side="left", padx=4)
             ttk.Label(right, textvariable=self.status, wraplength=380,
                       justify="left").pack(anchor="w", pady=(8, 0))
             self.refresh_table()
@@ -532,10 +612,13 @@ def run_gui(fd, args):
 
         def on_preset(self, _event=None):
             name = self.preset.get()
-            if name not in PRESETS:
+            if name == "custom":
+                return
+            preset = all_presets().get(name)
+            if preset is None:
                 return
             curve.points = sorted((float(t), float(r))
-                                  for t, r in PRESETS[name]["points"])
+                                  for t, r in preset["points"])
             self.refresh_table()
             self.plot.draw()
 
@@ -588,9 +671,40 @@ def run_gui(fd, args):
         def on_save(self):
             try:
                 curve.save()
-                self.status.set("saved to %s" % CURVE_PATH)
             except OSError as exc:
                 self.status.set("could not save: %s" % exc)
+                return
+            self.status.set("saved to %s - the auto loop uses this curve"
+                            % CURVE_PATH)
+
+        def on_keep(self):
+            """Keep the curve under a name, so it can be picked again."""
+            name = simpledialog.askstring("Keep this curve",
+                                           "name for this curve",
+                                           initialvalue="tuned")
+            if not name or not name.strip():
+                return
+            name = name.strip()
+            try:
+                save_preset(name, curve.points)
+            except OSError as exc:
+                self.status.set("could not keep: %s" % exc)
+                return
+            names = list(all_presets())
+            self.box["values"] = names
+            self.preset.set(name)
+            self.status.set("kept as %r in %s" % (name, PRESET_PATH))
+
+        def on_reload(self):
+            """Re-read the curve from disk, for hand-edited numbers."""
+            saved = Curve.load(CURVE_PATH)
+            if saved is None:
+                self.status.set("no saved curve at %s yet" % CURVE_PATH)
+                return
+            curve.points = saved.points
+            self.refresh_table()
+            self.plot.draw()
+            self.status.set("reloaded %s" % CURVE_PATH)
 
         def restore(self):
             ctrl.restore()
@@ -661,8 +775,8 @@ def main():
     ap.add_argument("--auto", action="store_true",
                     help="follow the curve")
     ap.add_argument("--rpm", type=int, help="hold this RPM (manual)")
-    ap.add_argument("--preset", default="balanced", choices=sorted(PRESETS),
-                    help="curve preset")
+    ap.add_argument("--preset",
+                    help="curve preset (default: the saved curve)")
     ap.add_argument("--curve", help="curve file (JSON: [[temp, rpm], ...])")
     ap.add_argument("--sources", default="cpu,gpu",
                     help="temperature sources: cpu,gpu,skin,ec")
@@ -681,7 +795,7 @@ def main():
     args = ap.parse_args()
 
     if args.list_presets:
-        for name, preset in sorted(PRESETS.items()):
+        for name, preset in sorted(all_presets().items()):
             print("%-10s %s" % (name, preset["desc"]))
             print("           %s" % " ".join("%gC=%d" % (t, r)
                                            for t, r in preset["points"]))
@@ -690,15 +804,11 @@ def main():
     if not os.path.exists(fanctl.CDEV_PATH):
         sys.exit("%s missing - run: sudo modprobe surface_aggregator_cdev"
                  % fanctl.CDEV_PATH)
-    if os.geteuid() != 0:
-        sys.exit("needs root (the cdev is mode 0600 root:root)")
+    if not os.access(fanctl.CDEV_PATH, os.O_RDWR):
+        sys.exit("needs root (the cdev is mode 0600 root:root) - "
+                 "use the desktop launcher, which asks for the password")
 
     args.curve_points = None
-    if args.curve:
-        loaded = Curve.load(args.curve)
-        if loaded is None:
-            sys.exit("cannot read the curve file: %s" % args.curve)
-        args.curve_points = loaded.as_json()
 
     fd = os.open(fanctl.CDEV_PATH, os.O_RDWR)
     try:

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=SLS2 Fan Curve
+GenericName=Fan curve control
+Comment=Slider and editable fan curve for the Surface Laptop Studio 2
+Exec=/home/otter/projects/sls2-ec-re/tools/fanctl/fancurve --gui
+Icon=/home/otter/projects/sls2-ec-re/tools/fanctl/fancurve.svg
+Terminal=false
+Categories=System;HardwareSettings;
+Keywords=fan;cooling;thermal;temperature;
+StartupNotify=true

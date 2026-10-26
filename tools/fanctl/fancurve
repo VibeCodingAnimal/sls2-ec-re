@@ -1,0 +1,29 @@
+#!/bin/sh
+# The SSAM character device is root-only, so the tool has to run privileged.
+# pkexec does the asking; the GUI still needs the user's X display and the
+# user's config directory, so both are handed over explicitly.
+here=$(dirname "$(readlink -f "$0")")
+display=${DISPLAY:-:1}
+if [ ! -e "/tmp/.X11-unix/X${display#:}" ]; then
+    for sock in /tmp/.X11-unix/X*; do
+        [ -e "$sock" ] || continue
+        display=":${sock##*X}"
+        break
+    done
+fi
+# The live XWayland cookie, not the stale one in the home directory.
+xauth_file=${XAUTHORITY:-}
+if [ -z "$xauth_file" ] || [ ! -f "$xauth_file" ]; then
+    for f in /run/user/1000/xauth_*; do
+        [ -f "$f" ] || continue
+        xauth_file=$f
+        break
+    done
+fi
+exec pkexec env \
+    DISPLAY="$display" \
+    XAUTHORITY="$xauth_file" \
+    XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}" \
+    SUDO_UID="$(id -u)" \
+    SUDO_GID="$(id -g)" \
+    /usr/bin/python3 "$here/fancurve.py" "$@"

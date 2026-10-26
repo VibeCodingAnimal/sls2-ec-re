@@ -69,8 +69,8 @@ Details: `decoded/FAN_SPEED.md` (§13 has the whole state machine),
 
 ```
 sudo modprobe surface_aggregator_cdev     # gives /dev/surface/aggregator
-python3 tools/fanctl/fancurve.py --gui     # slider + editable fan curve
-python3 tools/fanctl/fancurve.py --auto --preset gaming
+tools/fanctl/fancurve --gui               # slider + editable fan curve
+tools/fanctl/fancurve --auto              # follow the saved curve
 python3 tools/fanctl/fanctl.py --status
 python3 tools/fanctl/fanctl.py --rpm 6000
 python3 tools/fanctl/fanctl.py --gui      # Tk slider
@@ -80,6 +80,28 @@ python3 tools/fanctl/fanctl.py --gui      # Tk slider
 GPU, chassis and the EC's own sensor), with a slider for manual control,
 presets, an editable curve saved to `~/.config/fancurve/curve.json`, and a
 deadman that puts the fans back to 3000 rpm on every exit path.
+
+`tools/fanctl/fancurve` is the launcher: the SSAM cdev is `0600 root:root`,
+so it goes through `pkexec` and hands the GUI the live XWayland cookie and
+the user's config directory. `tools/fanctl/sls2-fan-curve.desktop` puts it
+on the desktop and in the launcher.
+
+### Tuning the curve
+
+The curve is a list of (°C, rpm) points, and both the GUI and the auto
+loop read the same one:
+
+| where | what |
+|---|---|
+| `~/.config/fancurve/curve.json` | the curve the GUI's **Save** button writes, and the default for `--auto` |
+| `~/.config/fancurve/presets.json` | named curves the GUI's **Keep** button writes, listed in the preset box next to the built-in ones |
+| `PRESETS` in `fancurve.py` | the built-in ones, checked into this repo |
+
+In the GUI, double-click a row to change its °C or rpm, then **Save** to
+make it the curve the auto loop follows, or **Keep** to give it a name.
+Points above 85 °C are unreachable — the duty saturates at 7500 rpm — and
+the CPU package idles at 53-57 °C, so the quiet end of the curve has to
+reach past 55 °C before it does anything.
 
 `tools/cdev-probe/` holds the raw probes used to decode the command table;
 `tools/cdev-probe/fan_temp_boost.py` is the CID 0x0C door.
@@ -147,7 +169,7 @@ sls2-ec-re/
 ├── pcap/                   # SAM/strace captures
 ├── sessions/               # per-session notes
 └── tools/
-    ├── fanctl/             # the fan control tools (fanctl.py = CLI+GUI, fancurve.py = curve)
+    ├── fanctl/             # fanctl.py = CLI+GUI, fancurve.py = the curve, fancurve = the launcher
     ├── cdev-probe/         # raw SSAM probes used to decode the tables
     ├── xlff/               # firmware container extraction
     ├── acpi-map/           # ACPI SANV / _DSM mapping

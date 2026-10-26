@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=SLS2 Fan Curve (auto)
+GenericName=Fan curve control
+Comment=Follow the saved fan curve in a console
+Exec=/home/otter/projects/sls2-ec-re/tools/fanctl/fancurve --auto
+Icon=/home/otter/projects/sls2-ec-re/tools/fanctl/fancurve.svg
+Terminal=true
+Categories=System;HardwareSettings;
+Keywords=fan;cooling;thermal;temperature;

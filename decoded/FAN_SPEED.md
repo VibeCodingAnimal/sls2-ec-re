@@ -603,3 +603,16 @@ own thermistor and drops the EC back into state 1 (§13.5) — but a hot
 ambient means the equilibrium sits at 4321 rpm and no slider can go
 quieter. Applying the Quiet profile (FAN CID 0x0E, id 1) lowers that floor
 to `quadratic(25 °C)` = 3704 rpm.
+
+### 13.8 Running it
+
+The SSAM cdev is `0600 root:root`, so the tool has to be privileged.
+`tools/fanctl/fancurve` is the launcher: it goes through `pkexec` and hands
+the GUI the live XWayland cookie (`/run/user/1000/xauth_*`, not the stale
+`~/.Xauthority`) and the user's config directory, so the window lands on
+the user's desktop and the saved curve stays the user's own file. The
+`.desktop` file next to it puts the launcher on the desktop.
+
+The curve lives in `~/.config/fancurve/curve.json` and is what both the GUI
+and `--auto` use; named curves the user keeps from the GUI go to
+`presets.json` beside it.
