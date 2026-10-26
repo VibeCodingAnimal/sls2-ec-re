@@ -64,7 +64,9 @@ import fanctl
 RPM_MIN = 3000      # the fan config's minimum; the EC will not go lower
 RPM_TOP = 7500      # the duty saturates here; 11000 is a model guard
 CID_EC_TEMP = 0x13  # the fan module's own temperature
-SOURCES = ("cpu", "gpu", "skin", "ec")
+SOURCES = ("cpu", "gpu", "skin", "gskin", "ec")
+SOURCE_LABELS = {"cpu": "cpu", "gpu": "gpu", "skin": "skin",
+                  "gskin": "gpu-side", "ec": "ec"}
 
 CONFIG_DIR = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
@@ -136,8 +138,12 @@ def cpu_temp():
     return hwmon_temp("coretemp", "Package id 0")
 
 
-def skin_temp():
-    """The hottest of the chassis sensors."""
+def skin_temp(sensors=None):
+    """The hottest of the chassis sensors.
+
+    With no argument it takes every surface_thermal sensor; give it a list
+    of labels to pick only those.
+    """
     best = None
     for base in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
         try:
@@ -147,6 +153,14 @@ def skin_temp():
         except OSError:
             continue
         for path in sorted(glob.glob(os.path.join(base, "temp*_input"))):
+            label = ""
+            try:
+                with open(path[:-len("_input")] + "_label") as f:
+                    label = f.read().strip()
+            except OSError:
+                continue
+            if sensors and label not in sensors:
+                continue
             try:
                 with open(path) as f:
                     val = int(f.read().strip()) / 1000.0
@@ -155,6 +169,16 @@ def skin_temp():
             if best is None or val > best:
                 best = val
     return best
+
+
+# I_RTS3 and I_RTS4 are the two sensors that move with a GPU load; the rest
+# of the chassis sensors are on the CPU side.
+GPU_SIDE = ("I_RTS3", "I_RTS4")
+
+
+def gpu_skin_temp():
+    """The hottest of the GPU-side chassis sensors."""
+    return skin_temp(GPU_SIDE)
 
 
 class GpuTemp:
@@ -446,6 +470,8 @@ class AutoPilot:
             vals["gpu"] = self.gpu.get()
         if "skin" in self.sources:
             vals["skin"] = skin_temp()
+        if "gskin" in self.sources:
+            vals["gskin"] = gpu_skin_temp()
         if "ec" in self.sources:
             vals["ec"] = ec_temp(self.ctrl.fd, self.fan)
         vals = {k: v for k, v in vals.items() if v is not None}
@@ -660,7 +686,8 @@ def run_gui(fd, args):
             wrow.pack(fill="x", pady=(4, 0))
             ttk.Label(wrow, text="watches").pack(side="left")
             for name in SOURCES:
-                ttk.Checkbutton(wrow, text=name, variable=self.src_vars[name],
+                ttk.Checkbutton(wrow, text=SOURCE_LABELS[name],
+                                variable=self.src_vars[name],
                                 command=self.on_sources).pack(side="left", padx=4)
 
             self.table = ttk.Treeview(right, columns=("temp", "rpm"),
@@ -924,7 +951,7 @@ def main():
                     help="curve preset (default: the saved curve)")
     ap.add_argument("--curve", help="curve file (JSON: [[temp, rpm], ...])")
     ap.add_argument("--sources", default="cpu,gpu",
-                    help="temperature sources: cpu,gpu,skin,ec")
+                    help="temperature sources: cpu,gpu,skin,gskin,ec")
     ap.add_argument("--fans", default="1,2", help="which fans to drive")
     ap.add_argument("--interval", type=float, default=1.0,
                     help="control loop period")

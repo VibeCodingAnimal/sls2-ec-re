@@ -124,9 +124,9 @@ Two things the numbers have to live with:
   point under the EC's demand has no effect; a curve point over it buys
   the extra cooling.
 - **The sensors are not interchangeable.** `cpu` is the CPU package,
-  `gpu` the NVIDIA die, `skin` the chassis, `ec` the fan module's own
-  thermistor. The GPU-side chassis sensors (`I_RTS3`, `I_RTS4`) are the
-  ones that move with a GPU load.
+  `gpu` the NVIDIA die, `skin` the hottest chassis sensor, `gpu-side` the
+  GPU-side chassis sensors (`I_RTS3`, `I_RTS4` — the ones that move with a
+  GPU load), `ec` the fan module's own thermistor.
 
 `tools/cdev-probe/` holds the raw probes used to decode the command table;
 `tools/cdev-probe/fan_temp_boost.py` is the CID 0x0C door.
