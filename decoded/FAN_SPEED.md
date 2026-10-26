@@ -147,6 +147,12 @@ profile's `+0x22` minimum RPM) even though the quadratic asks for 4321 at
 **The cap is the slider.** `fanctl.py` writes it directly and restores it
 to 3000 on exit.
 
+> **Correction (2026-10-25).** The `uVar6` line above is only half the
+> story: the quadratic is the ceiling *only if* `fan+0x88` is set, and
+> `fan+0x88` is set by nothing except FAN CID 0x0C. In normal operation
+> the ceiling is **0xFFFF** and the cap is the commanded RPM outright.
+> §13 has the whole state machine.
+
 ## 5. The two commands
 
 ```
@@ -415,14 +421,18 @@ the end of the road from the cdev.
 
 1. The `I_RTS*` board thermal channels never enter this chain — they are
    read but do not feed the quadratic.
-2. The per-fan "Override" record (CID 0x05) has a **different layout** from
-   the profile records: its target temperature is a float at `+0x1C` and its
-   hot-state RPM (`+0x24` = 8500) and min/max RPM (`+0x22` = 3000,
-   `+0x20` = 8000) live where the profile records have thresholds. Which
-   record the fan actually uses at runtime is not exposed by any CID.
+2. ~~The per-fan "Override" record (CID 0x05) has a **different layout**
+   from the profile records~~ — **resolved 2026-10-25**, see §13.2. The
+   Override record is the same layout with `+0x20` non-zero, which selects
+   the other branch of `FUN_100C6084`. The record actually applied at
+   runtime is the **Nominal profile record**: CID 0x0D reports the applied
+   target temperature as 30.0 °C, and only the profile records carry a
+   target temperature at `+0x30`.
 3. `FAN CID 0x0F` (policy = 1 threshold / 2 curve) is 1 on this machine.
    It gates whether the cap is consulted at all; behaviour under policy 2
-   is unverified.
+   is unverified. Under policy 2 the cap is ignored entirely and the EC's
+   own curve is the only input, so it would be the one way to get *below*
+   the state-2 floor of §13.7.
 4. **Why the EC drops CIDs ≥ 0x80** (§11). The unpack is in the IPC layer
    around `FUN_1009EE0C`; until it is decoded we do not know whether the
    Linux cdev could express those commands in some other shape.
@@ -432,3 +442,164 @@ the end of the road from the cdev.
 6. The curve's breakpoint tables (filled into EC SRAM at boot) and the
    numeric meaning of the three unlabelled floats at `config+0x0E`,
    `+0x12`, `+0x16`.
+
+## 13. The fan state machine, decoded (2026-10-25)
+
+Everything above was read off the decompiler and then confirmed live. This
+section is the reconciled model, and it explains why the stock fan on this
+machine is useless.
+
+### 13.1 The two temperatures
+
+`FUN_100C595E(fan_list, ?, ?, param_4)` takes a 32-bit word that holds
+two centi-degree temperatures:
+
+| | source | used for |
+|---|---|---|
+| `local_1c` | **overwritten per fan** by `FUN_100C5924` → `FUN_100C488C`, which reads the **fan module's own thermistor** | the curve, and the cool→hot transition |
+| `local_1a` | the caller | the hot→latched transition |
+
+FAN CID 0x13 returns the same number the curve sees, as a float32: 21-23 °C
+at idle, rising to 45 °C when the fan is at 6600 rpm. **The fan's thermistor
+is heated by the fan itself.**
+
+### 13.2 The record layout
+
+The profile records (CID 0x04) and the per-fan Override record (CID 0x05)
+share one layout, and every threshold is in **centi-degrees**:
+
+| offset | profile record | Override record | meaning |
+|---|---|---|---|
+| `+0x20` u16 | 0 | 8000 | non-zero selects the other branch of `FUN_100C6084` |
+| `+0x22` u16 | 3000 | 3000 | minimum RPM |
+| `+0x24` u16 | 0 | 8500 | the latched-state RPM |
+| `+0x26` u16 | 3071 | 3131 | cool → hot threshold (30.71 °C) |
+| `+0x28` u16 | 20 | 20 | threshold hysteresis (0.20 °C) |
+| `+0x2A` u16 | 3081 | 3141 | the curve's start temperature |
+| `+0x2C` u16 | 3251 | 3331 | hot → latched threshold (32.51 °C) |
+| `+0x2E` u16 | 40 | 40 | latched hysteresis (0.40 °C) |
+| `+0x30` f32 | 30.0 | 0 | the profile's target temperature |
+| `+0x34` u16 | 100 | — | duty for the latched state |
+| `+0x36` u16 | 3121 | — | the curve's end temperature |
+
+The applied record is the **Nominal profile record**: CID 0x0D returns the
+applied target temperature as 30.0 °C, and only the profile records have a
+target temperature there (the Override record's `+0x30` is 0).
+
+### 13.3 The curve is a step, not a ramp
+
+`FUN_100C6084` builds the curve when a profile is applied:
+
+```c
+fan+0x46 = record+0x2A;                             // start temperature
+span     = record+0x36 - record+0x2A;               // 40 for every profile
+fan+0x28 = (quadratic(record+0x30) - config+4) / span;   // the slope
+fan+0x38 = quadratic(record+0x30);                  // the curve's maximum
+fan+0x3C = record+0x22;                             // the curve's minimum
+```
+
+and `FUN_100D1BDC` evaluates it:
+
+```c
+rpm = min_rpm + (fan_temp - start_temp) * slope;    // clamped to [min, max]
+```
+
+**The span is 40 centi-degrees — 0.40 °C.** The EC's "fan curve" is not a
+ramp: it is a step from the minimum to the maximum within four tenths of a
+degree of the fan's own thermistor. Below the record's `+0x26` threshold
+the fan gets 3000 rpm; above it, `quadratic(target_temp)` — 4321 rpm on the
+Nominal profile.
+
+### 13.4 The ceiling, and why the cap is the command
+
+`fan+0x88` is the "the target temperature is overridden" flag. Only
+`FUN_100C5FDC` (FAN CID 0x0C) sets it, and it is cleared again by writing
+0.0 to that CID:
+
+```c
+ceiling = fan+0x88 ? quadratic(fan+0x84) : 0xFFFF;
+cap     = (fan+0x7F && policy == 1) ? fan+0x76 : 0;
+```
+
+Nothing in normal operation sets `fan+0x88`, so **the ceiling is 0xFFFF** —
+the cap is the commanded RPM on its own. The whole model:
+
+```
+state 1 (cool,  fan thermistor < record+0x26):
+    target = min(cap, ceiling)
+
+state 2 (hot):
+    target = min(max(curve(fan_thermistor), cap), ceiling)
+
+state 3 (latched, local_1a > record+0x2C):
+    target = record+0x24              // 8500 rpm on the Override record
+```
+
+`FUN_100C5C76` writes the target and the EC ramps the duty towards it.
+
+### 13.5 Live characterisation (2026-10-25)
+
+Commanded cap against the measured steady state, fans 1 and 2, 25 s to
+settle:
+
+| commanded | fan 1 | duty | fan 2 | duty |
+|---|---|---|---|---|
+| 3000 | **3001 rpm** | 30 % | 2999 rpm | 31 % |
+| 5500 | **5567 rpm** | 65 % | 5576 rpm | 67 % |
+| 7500 | **7318 rpm** | 97 % | 7270 rpm | 100 % |
+
+The cap is an accurate RPM command — within 2.4 % — once the EC has ramped
+there. The EC's duty map on this machine is 3000 → 30 %, 5500 → 65 %,
+7500 → 97 %.
+
+**The ramp is slow**, and that is why a short test lies:
+
+```
+cmd 7500:  +5s 4209 (55%)   +10s 6069 (78%)   +15s 6821 (88%)   +25s 7318 (97%)
+cmd 3000:  +5s 4938 (50%)   +10s 3742 (37%)   +20s 3096 (31%)   +40s 3001 (30%)
+```
+
+About 25 s up, 35 s down. A test that samples for 6 s sees a fan that is
+still on its way and looks like it under-delivers by 15 %.
+
+The descent also shows the state machine working: at cmd 3000 the fan was
+still at 4938 rpm with the thermistor at 36.7 °C (state 2, where the curve
+is a floor of 4321 rpm), and it only dropped through 4321 once the
+thermistor cooled below the 30.71 °C threshold and the EC went back to
+state 1.
+
+### 13.6 Why the stock fan never helps this machine
+
+1. The curve's input is the **fan's own thermistor**, not the CPU or the
+   GPU. It reads 21-23 °C idle and 36-48 °C only when the fan is already
+   spinning hard.
+2. The curve's span is 0.40 °C, so it is a step, not a ramp — and the
+   step's *top* is `quadratic(profile target temp)`, which the Linux
+   platform profile pins to 4321 rpm (Nominal) or 7681 rpm (dGPU_Max).
+3. Linux's `surface_platform_profile` only ever emits profile ids 1-4 and
+   the driver rejects anything higher, so the fan cannot be pointed at the
+   45 °C profiles that would raise the step's top.
+
+So the EC sits at its 3000 rpm minimum while the CPU package idles at
+53-57 °C. Measured on this machine with the stock setup:
+
+```
+cpu 57.0 C   gpu 48.0 C   fan 1 3000 rpm   fan 2 3000 rpm
+```
+
+**The fix is to close the loop in userspace**, which is what
+`tools/fanctl/fancurve.py` does: read the real temperatures, run them
+through an editable curve, and write the resulting RPM to the cap. The EC
+keeps its own protection on top — in state 2 the curve is a floor, and in
+state 3 the EC drives 8500 rpm by itself.
+
+### 13.7 The remaining sharp edge
+
+In state 2 the target is `max(curve, cap)`, and the curve's maximum is
+`quadratic(profile target temp)` — **4321 rpm on the Nominal profile**. So
+once the fan's thermistor is above 30.71 °C, the cap cannot bring the fan
+*below* 4321 rpm. In practice the fan escapes, because slowing it cools its
+own thermistor and drops the EC back into state 1 (§13.5) — but a hot
+ambient means the equilibrium sits at 4321 rpm and no slider can go
+quieter. Applying the Quiet profile (FAN CID 0x0E, id 1) lowers that floor
+to `quadratic(25 °C)` = 3704 rpm.

@@ -167,3 +167,49 @@ target  55.0 C -> EC asks  11177 rpm | peak 7450 rpm, duty 100%
 The duty saturates at 100 % at ~7500 rpm, so the 11000 in the config blob
 is a guard on the EC's model rather than a speed the fan delivers.
 
+
+---
+
+## Update 2026-10-25 — the cap is the actuator, and the EC's curve is a step
+
+Two things changed the picture since the table above.
+
+**1. The ceiling is 0xFFFF, not the quadratic.** `fan+0x88` is the
+"target temperature overridden" flag and only FAN CID 0x0C sets it. With
+it clear — which is the normal state — `FUN_100C595E` computes
+
+```c
+ceiling = fan+0x88 ? quadratic(fan+0x84) : 0xFFFF;
+```
+
+so the cap alone decides the target RPM. **FAN CID 0x0B is a plain
+speed command**, and no profile juggling is needed to change the fan's
+speed. (`fanctl.py` still switches profiles because it was written before
+this was understood; `fancurve.py` does not.)
+
+**2. The curve is a step over 0.40 °C, driven by the fan's own
+thermistor.** The curve's span is `record+0x36 - record+0x2A` = 3121 - 3081
+= **40 centi-degrees**, and its input is the fan module's own sensor
+(21-23 °C idle, 45 °C at 6600 rpm), not the CPU or the GPU. Its top is
+`quadratic(profile target temp)` — 4321 rpm on the Nominal profile.
+
+The state machine in full, with the cap as the input:
+
+| state | condition | target RPM |
+|---|---|---|
+| 1 cool | fan thermistor < `record+0x26` | `min(cap, ceiling)` |
+| 2 hot | above it | `min(max(curve, cap), ceiling)` |
+| 3 latched | `local_1a > record+0x2C` | `record+0x24` (8500 rpm) |
+
+Live characterisation, 25 s to settle, both fans:
+
+| commanded | fan 1 | duty | fan 2 | duty |
+|---|---|---|---|---|
+| 3000 | 3001 rpm | 30 % | 2999 rpm | 31 % |
+| 5500 | 5567 rpm | 65 % | 5576 rpm | 67 % |
+| 7500 | 7318 rpm | 97 % | 7270 rpm | 100 % |
+
+The EC ramps the duty over ~25 s up and ~35 s down, so short tests
+under-report the fan's speed by ~15 %.
+
+Full derivation: `decoded/FAN_SPEED.md` §13.

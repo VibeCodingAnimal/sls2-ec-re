@@ -37,17 +37,49 @@ far as it goes (CID 0x0C → 55 °C, so the EC asks for 11177 rpm) yields
 7450 rpm with the duty already at 100 %. The `11000` in the fan's config
 blob is a guard on the EC's *model* rpm, not a speed the fan delivers.
 
-Details: `decoded/FAN_SPEED.md`, `decoded/FAN_CONTROL.md`,
-`decoded/TC_FAN.md`, `decoded/CURVE.md`.
+### The cap is a plain speed command
+
+`FAN CID 0x0B` turns out to be an accurate actuator on its own. The
+quadratic is only the ceiling if the CID 0x0C override flag (`fan+0x88`) is
+set, and nothing sets it in normal operation — so the cap *is* the
+commanded RPM. Measured, both fans, 25 s to settle:
+
+| commanded | fan 1 | duty | fan 2 | duty |
+|---|---|---|---|---|
+| 3000 | 3001 rpm | 30 % | 2999 rpm | 31 % |
+| 5500 | 5567 rpm | 65 % | 5576 rpm | 67 % |
+| 7500 | 7318 rpm | 97 % | 7270 rpm | 100 % |
+
+### Why the stock fan is useless here, and what fixes it
+
+The EC's internal curve is driven by the **fan module's own thermistor**
+(21-23 °C idle, 45 °C at 6600 rpm) and its span is 40 centi-degrees — a
+step, not a ramp. It never engages, and the profile's quadratic pins what
+it would give to 4321 rpm (Nominal) or 7681 rpm (dGPU_Max). Linux's
+platform profile only emits ids 1-4. So the fans sit at their 3000 rpm
+minimum while the CPU package idles at 53-57 °C.
+
+The fix is to close the loop in userspace on the real temperatures, which
+is what `tools/fanctl/fancurve.py` does.
+
+Details: `decoded/FAN_SPEED.md` (§13 has the whole state machine),
+`decoded/FAN_CONTROL.md`, `decoded/TC_FAN.md`, `decoded/CURVE.md`.
 
 ### Tooling
 
 ```
 sudo modprobe surface_aggregator_cdev     # gives /dev/surface/aggregator
+python3 tools/fanctl/fancurve.py --gui     # slider + editable fan curve
+python3 tools/fanctl/fancurve.py --auto --preset gaming
 python3 tools/fanctl/fanctl.py --status
 python3 tools/fanctl/fanctl.py --rpm 6000
 python3 tools/fanctl/fanctl.py --gui      # Tk slider
 ```
+
+`fancurve.py` drives the cap from a temperature→rpm curve (CPU package,
+GPU, chassis and the EC's own sensor), with a slider for manual control,
+presets, an editable curve saved to `~/.config/fancurve/curve.json`, and a
+deadman that puts the fans back to 3000 rpm on every exit path.
 
 `tools/cdev-probe/` holds the raw probes used to decode the command table;
 `tools/cdev-probe/fan_temp_boost.py` is the CID 0x0C door.
@@ -115,7 +147,7 @@ sls2-ec-re/
 ├── pcap/                   # SAM/strace captures
 ├── sessions/               # per-session notes
 └── tools/
-    ├── fanctl/             # the fan control tool (CLI + Tk GUI)
+    ├── fanctl/             # the fan control tools (fanctl.py = CLI+GUI, fancurve.py = curve)
     ├── cdev-probe/         # raw SSAM probes used to decode the tables
     ├── xlff/               # firmware container extraction
     ├── acpi-map/           # ACPI SANV / _DSM mapping
